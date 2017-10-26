@@ -1,5 +1,5 @@
 # SLATRRA <br>
-Satellite Latency Assessment Tools for Real-time River Applications <br>
+<b>S<b>atellite <b>L<b>atency <b>A<b>ssessment <b>T<b>ools for <b>R<b>eal-time <b>R<b>iver <b>A<b>pplications <br>
 <br>
 Contains the codes used in analysis and production of figures in "Global estimates of river flow wave travel times and implications for low-latency satellite data" by Allen et al. <br>
 <br><br>
