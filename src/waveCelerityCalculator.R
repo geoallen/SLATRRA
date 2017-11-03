@@ -32,7 +32,7 @@ slopeOutFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/outputDa
 cityDamGaugeFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/outputData/cityDamGaugeflowlines'
 celTabOutFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/outputData/celerityTables'
 obsOutFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/outputData/obsflowlines'
-gaugeRecordFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/inputDatasets/vector/gauges/USGS/2014' # downloaded in 2014 :(
+gaugeRecordFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/inputDatasets/vector/gauges/USGS/2014' 
 rivOutFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/outputData/celerityFlowlines'
 
 # get list of tables:
