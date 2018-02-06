@@ -1,8 +1,9 @@
-veCelerityCalculator.R
-# George H. Allen, October 2017
+# waveCelerityCalculator.R
+# George H. Allen, 2017-2018
 
 ### To run in RStudio:
-# if (!"git2r" %in% rownames(installed.packages())) {install.packages("git2r")}; require(git2r)
+# if (!"git2r" %in% rownames(installed.packages())){
+#    install.packages("git2r")}; require(git2r)
 # fPath2repo = "/Users/geoallen/Documents/research/2017_06_16_waveSpeed/R/SLATTRA/"
 # urlPath2rep = "https://github.com/geoallen/SLATRRA"
 # if (!file.exists(fPath2repo)){
@@ -12,42 +13,77 @@ veCelerityCalculator.R
 # }
 
 
+################################################################################
+# DESCRIPTION
+################################################################################
 
-#### DESCRIPTION ####
-
-# The following script contains the data analysis and production of figures and tables 
-# in the Allen et al., "Global estimates of river flow wave travel times and 
-# implications for low-latency satellite data"  
+# The following script contains the data analysis and production of figures and  
+# tables in the Allen et al., "Global estimates of river flow wave travel times  
+# and implications for low-latency satellite data"  
 # 
-# The most basic sections of the code include: a calculation of river slope
-# Joining points of intererests (POIs: cities, dams, and gauges) to the river network 
-# Modeling flow wave celerity and calculating travel time
-# Validating the model with a gauge-based estimate of celerity
-# Generating figures and tables, and alculating the various statistics presented in the manuscript
+# The most basic sections of the code include: 
+# 1. joining points of intererests (POIs: cities, dams, and gauges) to the 
+# river network
+# 2. calculating  river slope 
+# 3. modeling flow wave celerity
+# 4. calculating travel time
+# 5. validating the model with a gauge-based estimate of celerity
+# 6. Generating figures and tables, and alculating the various statistics 
+# 7. presented in the manuscript 
+
 # For input data, see the associated dataset description section 
 
-#### LIBRARIES ####
-if (!"foreign" %in% rownames(installed.packages())) {install.packages("foreign")}; require(foreign)
-if (!"MASS" %in% rownames(installed.packages())) {install.packages("MASS")}; require(MASS)
-if (!"geosphere" %in% rownames(installed.packages())) {install.packages("geosphere")}; require(geosphere)
-if (!"shapefiles" %in% rownames(installed.packages())) {install.packages("shapefiles")}; require(shapefiles)
+################################################################################
+# LOAD LIBRARIES
+################################################################################
+if (!"foreign" %in% rownames(installed.packages())){
+  install.packages("foreign")}; require(foreign)
+if (!"MASS" %in% rownames(installed.packages())){
+  install.packages("MASS")}; require(MASS)
+if (!"geosphere" %in% rownames(installed.packages())){
+  install.packages("geosphere")}; require(geosphere)
+if (!"shapefiles" %in% rownames(installed.packages())){
+  install.packages("shapefiles")}; require(shapefiles)
+if (!"robustbase" %in% rownames(installed.packages())){
+  install.packages("robustbase")}; require(robustbase)
 
-#### HARD-CODED CONSTANTS ####
-rivEndPtTabFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/inputDatasets/vector/andreadisEtAl2013/hydrosheds_wqdles'
-rivMidPtTabFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/inputDatasets/vector/andreadisEtAl2013/hydrosheds_wqdLCbasFswot'
-rivNetworkConnectFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/inputDatasets/vector/andreadisEtAl2013/hydrosheds_connectivity'
-origPolylinesFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/inputDatasets/vector/andreadisEtAl2013/hydrosheds_wqd'
-cityFpath = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/inputDatasets/vector/cities/NaturalEarth/orig/ne_10m_populated_places.dbf'
-damFpath = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/inputDatasets/vector/dams/dams-rev01-global-shp/GRanD_dams_v1_1.dbf'
-gaugeFpath = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/inputDatasets/vector/gauges/gages_x010g.shp_nt00884/gages_x010g.dbf'
-slopeOutFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/outputData/slopeflowlines'
-cityDamGaugeFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/outputData/cityDamGaugeflowlines'
-celTabOutFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/outputData/celerityTables'
-obsOutFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/outputData/obsflowlines'
-gaugeRecordFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/inputDatasets/vector/gauges/USGS/2014' 
-rivOutFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/outputData/celerityFlowlines'
 
-# get list of tables:
+################################################################################
+# HARD-CODED CONSTANTS
+################################################################################
+### local file paths:
+
+# inputs:
+# river network input:
+origPolylinesFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/input/riv_lines' # from Andreadis etal. 
+rivEndPtTabFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/input/riv_endPts' # generated with ArcMap
+rivMidPtTabFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/input/riv_midPts' # generated with ArcMpa
+rivNetworkConnectFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/input/riv_conn' # generated with RRR
+# river netowrk
+cityFpath = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/input/city/ne_10m_populated_places.dbf' # <- from Landscan/Natural Earth
+damFpath = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/input/dam/GRanD_dams_v1_1.dbf' # from GRanD database
+gaugeFpath = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/input/gauge/gages_x010g.dbf'# from USGS WIS
+gaugeRecordFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/input/gauge/records' # from USGS WIS
+
+# outputs:
+cityDamGaugeFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/output/riv_POIjoin' # mid-process write out. Shapefiles with joined cities, dams, and gauges
+obsOutFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/output/riv_val'
+rivOutFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/output/riv_out'
+figOutFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/output/figs'
+tabOutFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/output/tabs'
+dirCreater(dirPath = c(cityDamGaugeFdir, obsOutFdir, rivOutFdir, figOutFdir, tabOutFdir))
+
+### variables:
+# hydroBasins with river networks that drain north of 60N lat. (SRTM data gap):
+basin2rm = c(3000001840,3000004740,3000009130,2000028310,2000041840,2000043720,8000009560)
+
+# cubic feet per second to cubic peters per second conversion:
+cfs2mfsConv = 0.028316847
+
+# threshold slope (unncessary if using monte carlo simulation):
+zeroSlope = 1e-5
+
+# get list of input file paths:
 rivEndPtTabFnames = list.files(rivEndPtTabFdir, 'dbf', recursive=T)
 rivEndPtTabNames = substr(rivEndPtTabFnames, 1, 2)
 rivEndPtTabFpaths = paste0(rivEndPtTabFdir, '/', rivEndPtTabFnames)
@@ -58,7 +94,8 @@ rivMidPtTabFpaths = paste0(rivMidPtTabFdir, '/', rivMidPtTabFnames)
 midPtMatch = match(rivEndPtTabNames, rivMidPtTabNames)
 
 rivNetworkConnectFnames = list.files(rivNetworkConnectFdir)
-rivNetworkConnectFpaths = list.files(rivNetworkConnectFdir, 'csv', recursive=T, full.names=T)
+rivNetworkConnectFpaths = list.files(rivNetworkConnectFdir, 'csv', recursive=T, 
+                                     full.names=T)
 
 origPolylinesFpaths = paste0(origPolylinesFdir, '/', rivEndPtTabFnames)
 
@@ -71,17 +108,29 @@ gFnames = list.files(gaugeRecordFdir)
 gNames = as.numeric(sub('.csv', '', gFnames))
 gFpaths = paste0(gaugeRecordFdir, '/', gFnames)
 
-# specify hydroBasins which have river networks that drain north
-# into SRTM data gap, north of 60N lat:
-basin2rm = c(3000001840,3000004740,3000009130,2000028310,2000041840,2000043720,8000009560)
 
-# cubic feet per second to cubic peters per second conversion:
-cfs2mfsConv = 0.028316847
 
-#### FUNCTIONS #### 
+
+################################################################################
+# FUNCTIONS
+################################################################################
 
 # for a given river segment, returns the upstream segment with the greatest
 # drainage area. Takes in connectivity table and info about drainage area:
+tableMaker = function(colNames, nrows, fill=NA){
+  tab = as.data.frame(array(fill, c(nrows, length(colNames))))
+  names(tab) = colNames
+  return(tab)
+}
+gm_mean = function(x, na.rm=TRUE){
+  exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+}
+dirCreater <- function(dirPath){
+  for (i in 1:length(dirPath)){
+    if (!dir.exists(dirPath[i])){dir.create((dirPath[i]))}
+    print(paste("created new directory:", dirPath[i]))
+  }
+}
 largerBasin = function(cTab, mTab, UID, ncolCtab){
   upUIDs = cTab[UID, 4:ncolCtab]
   upUIDs = upUIDs[upUIDs != 0]
@@ -89,12 +138,6 @@ largerBasin = function(cTab, mTab, UID, ncolCtab){
   upUID = upUIDs[which.max(mTab$AREA[upUIDs])]
   return(upUID)
 }
-tableMaker = function(colNames, nrows, fill=NA){
-  tab = as.data.frame(array(fill, c(nrows, length(colNames))))
-  names(tab) = colNames
-  return(tab)
-}
-
 POI2RivJoin <- function(POItab, POIXY, pLineTab, attrTab, inAttr, POIname, scoreFunc, sRad, smallSrad){
   # for each point of interest (POI), find the river segment that the 
   # POI is most likely to be located on.
@@ -507,7 +550,10 @@ distPlot <- function(x, weight, uprQuant, breaks=NA, j, xLab, yLab, makeTab=T, l
 }
 
 
-####### POI JOIN TO RIVER NETWORK #####
+
+################################################################################
+# POI JOIN TO RIVER NETWORK
+################################################################################
 
 # read in city table:
 cityTab = foreign::read.dbf(cityFpath);  
@@ -594,143 +640,175 @@ for (i in 1:length(shpFpaths)){ #c(4,6)){ #
 system("say done run")
 
 
-####### CELERITY & TRAVEL TIME #####
 
 
+
+
+################################################################################
+#CELERITY & TRAVEL TIME
+################################################################################
 
 # Sources of uncertainty: 
+# DONE: elevation: gaussian mu=slope, sd=(FIND REF)
+# DONE: zero slopes: uniform 1e-5 to 1e3 (or 1e-2)
+# DONE: river length: uniform: 1-1.5
 # width: skewed normal (or uniform) 5%, 50%, 95% from Andreadis etal 
-
-
 # depth: gaussian 5%, 50%, 95% from Andreadis etal 
 # n: gaussian: 5%, 50%, 95% : 0.02, 0.03, 0.04 (or just assume 0.03)
-# slope: gaussian mu=slope, sd=(FIND REF)
-# zero slopes: uniform 1e-5 to 1e3 (or 1e-2)
-# river length: uniform: 1-1.5 
 # Channel shape -- argue it is a can of worms (add a sentence about how width and depth are so uncertain, beta and shape cancel out)
 -- 
+  
+  
+  
 
 
 
-
-zeroSlope = 1e-5
 ptm = proc.time()
-# Calculate flow wave celerity and travel time for each segment:
-for (i in 1:length(cityDamGaugeFpaths)){ 
+nRun = 200
+for (h in 1:nRun){
   
-  # read in river polyline attribute table:
-  tab = foreign::read.dbf(cityDamGaugeFpaths[i])
-  
-  # read in and process segment endpoint shapefile table:
-  EPtab = foreign::read.dbf(rivEndPtTabFpaths[i])
-  names(EPtab)[names(EPtab) == "RASTERVALU"] = "ELEV_M"
-  names(EPtab)[names(EPtab) == "LENGTH_GEO"] = "LENGTH_KM"
-  
-  # read in and set up connectivity table:
-  j = grep(rivEndPtTabNames[i], rivNetworkConnectFnames)
-  cTab = read.csv(rivNetworkConnectFpaths[j], header=F)
-  names(cTab) = c("UID", "DNSTR", "N_UPSTRSEGS", 
-                  "UPSTR1", "UPSTR2", "UPSTR3", "UPSTR4", "UPSTR5", "UPSTR6", 
-                  "UPSTR7", "UPSTR8", "UPSTR9", "UPSTR10", "UPSTR11", "UPSTR12")
-  
-  
-  ####
-  # SLOPE CALCULATION:
-  
-  # check if there are any unpaired ORIG_FIDs:
-  oddInd = seq(1, nrow(EPtab), 2)
-  evenInd = seq(2, nrow(EPtab), 2)
-  unpairedInd = which(EPtab$ORIG_FID[evenInd]-EPtab$ORIG_FID[oddInd] != 0)
-  if (length(unpairedInd) > 0){
-    message(paste(length(unpairedInd), "unpaired segment endpoints."))
-  }
-  
-  # simulate slope uncertainty through monte carlo error propogation:
-  N = nrow(tab)
-  MC_LENCOR = runif(n=N, min=1, max=1.5) # simulate uncertainty of river length (low res. DEM short circuits river meanders)
-  MC_LENGTH = EPtab$LENGTH_KM[evenInd]*MC_LENCOR
-  MC_UPSTR_ELEV = runif(n=N, min=EPtab$ELEV_M[oddInd]-5, max=EPtab$ELEV_M[oddInd]+5) # include 10 m of uncertainty to elevation
-  MC_DNSTR_ELEV = runif(n=N, min=EPtab$ELEV_M[evenInd]-5, max=EPtab$ELEV_M[evenInd]+5) # include 10 m of uncertainty to elevation
-  MC_ZSLOPE = runif(n=N, min=1e-5, max=1e-3)
-  
-  # calculate gradient and remove duplicates:
-  MC_SLOPE = (MC_UPSTR_ELEV - MC_DNSTR_ELEV)/(1e3*MC_LENGTH) # convert length from km to m
-  
-  # set zero or negative slopes to a minimum threshold:
-  MC_SLOPE[MC_SLOPE <= 0] = MC_ZSLOPE[MC_SLOPE <= 0]
-  
-  # add slope to polyline attribute table:
-  m = match(tab$ARCID, EPtab$ARCID[oddInd])
-  SLOPE = MC_SLOPE[m]
-  tab = cbind(tab, SLOPE)
-  
-  
-  ####
-  # simulate river parameter uncertainty through monte carlo error propogation:
-  MC_WIDTH = runif(n=N, min=tab$WIDTH5, max=tab$WIDTH95)
-  MC_DEPTH = runif(n=N, min=tab$DEPTH5, max=tab$DEPTH95)
-  MC_N = runif(n=N, min=0.02, max=0.05) # rnorm(n=N, mean=0.03, sd=0.1) <-- need to remove MC_N >= 0
-  
-  ####
-  # calculate flow wave celerity for each segment:
-  # manning rect: β = 5/3; Chezy rect: β = 3/2; manning tri: 4/3; chez tri: 5/4
-  tab = celerityModel_mann_rect(tab, MC_WIDTH, MC_DEPTH, MC_SLOPE, MC_N, B=5/3)
-  
-  # Add new columns to tab:
-  SWOT_TRAC_DEN = 
-    hBASIN = # main basin ID from hydroBASINS
-    GLCC = # Global Land Cover Classification
-    FLOODHAZARD = # flood hazard index
-    UPSTR_DIST_KM = # upstream distance in km
-    UPSTR_TIME_DAY = # upstream flow wave travel time in days
-    CITY_UPSTR_TIME_DAY = # upstream from nearest city flow wave travel time in days
-    DAM_UPSTR_TIME_DAY = # upstream from nearest dam flow wave travel time in days
-    rep(NA, nrow(tab))
-  tab = cbind(tab, hBASIN, GLCC, FLOODHAZARD, SWOT_TRAC_DEN, 
-              UPSTR_DIST_KM, UPSTR_TIME_DAY, CITY_UPSTR_TIME_DAY, DAM_UPSTR_TIME_DAY)
-  
-  # read in midPtTab:
-  midPtTab = foreign::read.dbf(rivMidPtTabFpaths[midPtMatch[i]])
-  
-  # join data from midPoints tab:
-  m = match(tab$ARCID, midPtTab$ARCID) # match UIDs (prob unnecessary)
-  tab$hBASIN = midPtTab$MAIN_BAS[m] #  main basin UID for the hydroBASINS dataset (http://www.hydrosheds.org/page/hydrobasins)
-  tab$GLCC = midPtTab$GLCC[m] # land cover dataset (https://lta.cr.usgs.gov/glcc/globdoc2_0) #DN: 20 <- desert
-  tab$FLOODHAZARD = midPtTab$RASTERVALU[m] # flood hazard composite from the DFO (via NASA): #avhrr
-  tab$SWOT_TRAC_DEN = midPtTab$COUNT_coun[m] # swot track density (N overpasses per cycle @ segment centroid)
-  tab$CONTINENT = i # add continental UID field (1=af, 2=as, 3=au, 4=ca, 5=eu, 6=na, 7=sa)
+  # Calculate flow wave celerity and travel time for each segment:
+  i = 4 #for (i in 1:length(cityDamGaugeFpaths)){ 
     
-  # calculate the cumulative length and time along
-  # entire river network:
-  tab = cumRivTime(tab, cTab)
-  # consider adding reverse stream order field 
-
-  # add tab data to polyline shapefile data:
-  # replace previously modified file with new copy:
-  if (file.exists(origPolylinesFpaths[i])){
-    file.remove(rivOutFpaths[i])
-    file.copy(origPolylinesFpaths[i], rivOutFpaths[i])
-  }
+    # read in river polyline attribute table:
+    if (h==1){tab_raw = foreign::read.dbf(cityDamGaugeFpaths[i])}
+    tab=tab_raw
+    
+    # read in and process segment endpoint shapefile table:
+    EPtab = foreign::read.dbf(rivEndPtTabFpaths[i])
+    names(EPtab)[names(EPtab) == "RASTERVALU"] = "ELEV_M"
+    names(EPtab)[names(EPtab) == "LENGTH_GEO"] = "LENGTH_KM"
+    
+    # read in and set up connectivity table:
+    j = grep(rivEndPtTabNames[i], rivNetworkConnectFnames)
+    cTab = read.csv(rivNetworkConnectFpaths[j], header=F)
+    names(cTab) = c("UID", "DNSTR", "N_UPSTRSEGS", 
+                    "UPSTR1", "UPSTR2", "UPSTR3", "UPSTR4", "UPSTR5", "UPSTR6", 
+                    "UPSTR7", "UPSTR8", "UPSTR9", "UPSTR10", "UPSTR11", "UPSTR12")
+    
+    
+    ####
+    # SLOPE CALCULATION:
+    
+    # check if there are any unpaired ORIG_FIDs:
+    oddInd = seq(1, nrow(EPtab), 2)
+    evenInd = seq(2, nrow(EPtab), 2)
+    unpairedInd = which(EPtab$ORIG_FID[evenInd]-EPtab$ORIG_FID[oddInd] != 0)
+    if (length(unpairedInd) > 0){
+      message(paste(length(unpairedInd), "unpaired segment endpoints."))
+    }
+    
+    # simulate slope uncertainty through monte carlo error propogation:
+    N = nrow(tab)
+    MC_LENCOR = runif(n=N, min=1, max=1.5) # simulate uncertainty of river length (low res. DEM short circuits river meanders)
+    MC_LENGTH = EPtab$LENGTH_KM[evenInd]*MC_LENCOR
+    MC_UPSTR_ELEV = runif(n=N, min=EPtab$ELEV_M[oddInd]-5, max=EPtab$ELEV_M[oddInd]+5) # include 10 m of uncertainty to elevation
+    MC_DNSTR_ELEV = runif(n=N, min=EPtab$ELEV_M[evenInd]-5, max=EPtab$ELEV_M[evenInd]+5) # include 10 m of uncertainty to elevation
+    MC_ZSLOPE = runif(n=N, min=1e-5, max=1e-4)
+    
+    # calculate gradient and remove duplicates:
+    MC_SLOPE = (MC_UPSTR_ELEV - MC_DNSTR_ELEV)/(1e3*MC_LENGTH) # convert length from km to m
+    
+    # set zero or negative slopes to a minimum threshold:
+    MC_SLOPE[MC_SLOPE <= 0] = MC_ZSLOPE[MC_SLOPE <= 0]
+    
+    # add slope to polyline attribute table:
+    m = match(tab$ARCID, EPtab$ARCID[oddInd])
+    SLOPE = MC_SLOPE[m]
+    tab = cbind(tab, SLOPE)
+    
+    
+    # generate hydraulic geometry uncertainty from the 5th, and 95th CI from Andreadis etal 2012:
+    MC_WIDTH = abs(rnorm(n=N, mean=tab$WIDTH, sd=gm_mean(c(tab$WIDTH-tab$WIDTH5, tab$WIDTH95-tab$WIDTH))/2))
+    MC_DEPTH = abs(rnorm(n=N, mean=tab$DEPTH, sd=gm_mean(c(tab$DEPTH-tab$DEPTH5, tab$DEPTH95-tab$DEPTH))/2))
+    # generate roughness uncertainty from XYZ: 
+    MC_N = abs(rnorm(n=N, mean=0.03, sd=0.005)) # rnorm(n=N, mean=0.03, sd=0.1) <-- need to remove MC_N >= 0
+    
+    ####
+    # calculate flow wave celerity for each segment:
+    # manning rect: β = 5/3; Chezy rect: β = 3/2; manning tri: 4/3; chez tri: 5/4
+    tab = celerityModel_mann_rect(tab, MC_WIDTH, MC_DEPTH, MC_SLOPE, MC_N, B=5/3)
+    
+    # Add new columns to tab:
+    SWOT_TRAC_DEN = 
+      hBASIN = # main basin ID from hydroBASINS
+      GLCC = # Global Land Cover Classification
+      FLOODHAZARD = # flood hazard index
+      UPSTR_DIST_KM = # upstream distance in km
+      UPSTR_TIME_DAY = # upstream flow wave travel time in days
+      CITY_UPSTR_TIME_DAY = # upstream from nearest city flow wave travel time in days
+      DAM_UPSTR_TIME_DAY = # upstream from nearest dam flow wave travel time in days
+      rep(NA, nrow(tab))
+    tab = cbind(tab, hBASIN, GLCC, FLOODHAZARD, SWOT_TRAC_DEN, 
+                UPSTR_DIST_KM, UPSTR_TIME_DAY, CITY_UPSTR_TIME_DAY, DAM_UPSTR_TIME_DAY)
+    
+    # read in midPtTab:
+    midPtTab = foreign::read.dbf(rivMidPtTabFpaths[midPtMatch[i]])
+    
+    # join data from midPoints tab:
+    m = match(tab$ARCID, midPtTab$ARCID) # match UIDs (prob unnecessary)
+    tab$hBASIN = midPtTab$MAIN_BAS[m] #  main basin UID for the hydroBASINS dataset (http://www.hydrosheds.org/page/hydrobasins)
+    tab$GLCC = midPtTab$GLCC[m] # land cover dataset (https://lta.cr.usgs.gov/glcc/globdoc2_0) #DN: 20 <- desert
+    tab$FLOODHAZARD = midPtTab$RASTERVALU[m] # flood hazard composite from the DFO (via NASA): #avhrr
+    tab$SWOT_TRAC_DEN = midPtTab$COUNT_coun[m] # swot track density (N overpasses per cycle @ segment centroid)
+    tab$CONTINENT = i # add continental UID field (1=af, 2=as, 3=au, 4=ca, 5=eu, 6=na, 7=sa)
+      
+    # calculate the cumulative length and time along
+    # entire river network:
+    tab = cumRivTime(tab, cTab)
+    # consider adding reverse stream order field 
   
-  # transfer data to polyline vectors:
-  pLineTab = foreign::read.dbf(rivOutFpaths[i])
-  m = match(pLineTab$ARCID, tab$ARCID)
-  pLineTab = tab[m, ] #cbind(pLineTab, tab[m, ((ncol(pLineTab)+1):ncol(tab))])
-  #print(cbind(1:ncol(pLineTab), names(pLineTab)))
-  foreign::write.dbf(pLineTab, rivOutFpaths[i])
+    # add tab data to polyline shapefile data:
+    # replace previously modified file with new copy:
+    if (file.exists(origPolylinesFpaths[i])){
+      file.remove(rivOutFpaths[i])
+      file.copy(origPolylinesFpaths[i], rivOutFpaths[i])
+    }
+    
+    # transfer data to polyline vectors:
+    pLineTab = foreign::read.dbf(rivOutFpaths[i])
+    m = match(pLineTab$ARCID, tab$ARCID)
+    pLineTab = tab[m, ] #cbind(pLineTab, tab[m, ((ncol(pLineTab)+1):ncol(tab))])
+    #print(cbind(1:ncol(pLineTab), names(pLineTab)))
+    #foreign::write.dbf(pLineTab, rivOutFpaths[i])
+  
+    # CUMULATIVE TABLES:
+    colMean = colMeans(pLineTab)
+    colMed = colMedians(as.matrix(pLineTab))
+    
+    if (h == 1){ 
+      meanTab = colMean
+      medTab = colMed
+    } else {
+      meanTab = cbind(meanTab, colMean)
+      medTab = cbind(medTab, colMed)
+    }
+    
+    print(paste0(h/nRun, median(pLineTab$CELER_MPS)))
+  #}
 
-  print(paste(i, rivOutFpaths[i], "done run"))
 }
-print(median(pLineTab$CELER_MPS))
 
 print(proc.time() - ptm)
 system("say travel time calculation done run!")
 
+x = as.data.frame(cbind(x, cumsum(x[,2])/x[,1], cumsum(x[,3])/x[,1], cumsum(x[,4])/x[,1]))
+names(x) = c("run", "med", "mean", "sd", "cumAveMed", "cumAveMean", "cumAveSD")
+
+plot(range(x$run), range(x$cumAveMed), type='n')
+lines(x$run, x$cumAveMed, col=4)
+abline(h=mean(x$med), col=4, lty=2)
+#par(new=T)
+#plot(range(x$run), range(x$cumAveMean), type='n')
+#lines(x$run, x$cumAveMean, col=2)
+#abline(h=mean(x$mean), col=2, lty=2)
+
+hist(x$cumAveMed, 100)
 
 
-
-
-###### VALIDATION - GAUGE CROSS CORRELATION ANALYSIS ######
+################################################################################
+# VALIDATION - GAUGE CROSS CORRELATION ANALYSIS
+################################################################################
 
 # set up PDF device:
 pdfOut = "/Users/geoallen/Documents/research/2017_06_16_waveSpeed/outputData/plots/crossCorrelations2.pdf"
@@ -1032,7 +1110,12 @@ print(paste("standard error:", round(se(error), 1)))
 
 
 
-####### DISTRIBUTION PLOTS - TABLE 1, FIGURE S3 #########
+
+
+################################################################################
+# DISTRIBUTION PLOTS - TABLE 1, FIGURE S3
+################################################################################
+
 # analyze the global distribution of flow wave travel time:
 
 # read in and append each continent:
@@ -1202,5 +1285,4 @@ names(latencyTab)[j] = "Next downstream dam"
 dev.off()
 cmd = paste('open', pdfOut)
 system(cmd)
-
 
