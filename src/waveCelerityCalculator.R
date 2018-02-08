@@ -46,70 +46,8 @@ if (!"shapefiles" %in% rownames(installed.packages())){
   install.packages("shapefiles")}; require(shapefiles)
 if (!"robustbase" %in% rownames(installed.packages())){
   install.packages("robustbase")}; require(robustbase)
-
-
-################################################################################
-# HARD-CODED CONSTANTS
-################################################################################
-### local file paths:
-
-# inputs:
-# river network input:
-origPolylinesFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/input/riv_lines' # from Andreadis etal. 
-rivEndPtTabFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/input/riv_endPts' # generated with ArcMap
-rivMidPtTabFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/input/riv_midPts' # generated with ArcMpa
-rivNetworkConnectFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/input/riv_conn' # generated with RRR
-# river netowrk
-cityFpath = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/input/city/ne_10m_populated_places.dbf' # <- from Landscan/Natural Earth
-damFpath = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/input/dam/GRanD_dams_v1_1.dbf' # from GRanD database
-gaugeFpath = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/input/gauge/gages_x010g.dbf'# from USGS WIS
-gaugeRecordFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/input/gauge/records' # from USGS WIS
-
-# outputs:
-cityDamGaugeFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/output/riv_POIjoin' # mid-process write out. Shapefiles with joined cities, dams, and gauges
-obsOutFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/output/riv_val'
-rivOutFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/output/riv_out'
-figOutFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/output/figs'
-tabOutFdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA/output/tabs'
-dirCreater(dirPath = c(cityDamGaugeFdir, obsOutFdir, rivOutFdir, figOutFdir, tabOutFdir))
-
-### variables:
-# hydroBasins with river networks that drain north of 60N lat. (SRTM data gap):
-basin2rm = c(3000001840,3000004740,3000009130,2000028310,2000041840,2000043720,8000009560)
-
-# cubic feet per second to cubic peters per second conversion:
-cfs2mfsConv = 0.028316847
-
-# threshold slope (unncessary if using monte carlo simulation):
-zeroSlope = 1e-5
-
-# get list of input file paths:
-rivEndPtTabFnames = list.files(rivEndPtTabFdir, 'dbf', recursive=T)
-rivEndPtTabNames = substr(rivEndPtTabFnames, 1, 2)
-rivEndPtTabFpaths = paste0(rivEndPtTabFdir, '/', rivEndPtTabFnames)
-
-rivMidPtTabFnames = list.files(rivMidPtTabFdir, 'dbf', recursive=T)
-rivMidPtTabNames = substr(rivMidPtTabFnames, 1, 2)
-rivMidPtTabFpaths = paste0(rivMidPtTabFdir, '/', rivMidPtTabFnames)
-midPtMatch = match(rivEndPtTabNames, rivMidPtTabNames)
-
-rivNetworkConnectFnames = list.files(rivNetworkConnectFdir)
-rivNetworkConnectFpaths = list.files(rivNetworkConnectFdir, 'csv', recursive=T, 
-                                     full.names=T)
-
-origPolylinesFpaths = paste0(origPolylinesFdir, '/', rivEndPtTabFnames)
-
-cityDamGaugeFpaths = paste0(cityDamGaugeFdir, '/', rivEndPtTabFnames)
-obsOutFpaths = paste0(obsOutFdir, '/', rivEndPtTabFnames)
-rivOutFpaths = paste0(rivOutFdir, '/', rivEndPtTabFnames)
-celTabOutFpaths = paste0(rivOutFdir, '/', rivEndPtTabNames, 'riv_rangeGT05.csv')
-# list gauge files:
-gFnames = list.files(gaugeRecordFdir)
-gNames = as.numeric(sub('.csv', '', gFnames))
-gFpaths = paste0(gaugeRecordFdir, '/', gFnames)
-
-
-
+if (!"abind" %in% rownames(installed.packages())){
+  install.packages("abind")}; require(abind)
 
 ################################################################################
 # FUNCTIONS
@@ -127,8 +65,10 @@ gm_mean = function(x, na.rm=TRUE){
 }
 dirCreater <- function(dirPath){
   for (i in 1:length(dirPath)){
-    if (!dir.exists(dirPath[i])){dir.create((dirPath[i]))}
-    print(paste("created new directory:", dirPath[i]))
+    if (!dir.exists(dirPath[i])){
+      dir.create(dirPath[i], recursive=T)
+      print(paste("created new directory:", dirPath[i]))
+    }
   }
 }
 largerBasin = function(cTab, mTab, UID, ncolCtab){
@@ -138,7 +78,8 @@ largerBasin = function(cTab, mTab, UID, ncolCtab){
   upUID = upUIDs[which.max(mTab$AREA[upUIDs])]
   return(upUID)
 }
-POI2RivJoin <- function(POItab, POIXY, pLineTab, attrTab, inAttr, POIname, scoreFunc, sRad, smallSrad){
+POI2RivJoin <- function(POItab, POIXY, pLineTab, attrTab, inAttr, POIname, 
+                        scoreFunc, sRad, smallSrad){
   # for each point of interest (POI), find the river segment that the 
   # POI is most likely to be located on.
   
@@ -165,9 +106,11 @@ POI2RivJoin <- function(POItab, POIXY, pLineTab, attrTab, inAttr, POIname, score
   
   # find best matching river segment for each point of interest:
   for (j in POIsubInd){ #nrow(POIXY)){
-    # subset river polylines with an endpoints within a square distance from each POI:
+    # subset river polylines with an endpoints within a square distance 
+    # from each POI:
     NESW = destPoint(POIXY[j,], c(0,90,180,270), sRad)
-    closeRivs = which(tXY[,1] > NESW[4,1] & tXY[,1] < NESW[2,1] & tXY[,2] > NESW[3,2] & tXY[,2] < NESW[1,2])
+    closeRivs = which(tXY[,1] > NESW[4,1] & tXY[,1] < NESW[2,1] & 
+                        tXY[,2] > NESW[3,2] & tXY[,2] < NESW[1,2])
     # if there are no nearby rivers, skip to next POI: 
     if (length(closeRivs)==0){next}
     # get distance of nearby polyline verticies:
@@ -183,14 +126,16 @@ POI2RivJoin <- function(POItab, POIXY, pLineTab, attrTab, inAttr, POIname, score
     # get drainage area from attrTab by backing out nearest line dists UIDs:
     closestTabInd = pLineTab$Id[IDmatch[closestRivs[closestRivsOrd]]]
     closestA = attrTab$AREA[closestTabInd]
-    # score river segments by their drainage area and their proximity to the POI center:
+    # score river segments by their drainage area and their proximity to 
+    # the POI center:
     score = scoreFunc(closestA, closestD)
     #print(cbind(closestTabInd, closestD, closestA, score/max(score)))
     maxScoreInd = which.max(score)
     topScoreInd = closestTabInd[maxScoreInd]
     # add info to the attrTab:
     #print(attrTab$ARCID[topScoreInd])
-    outTab[topScoreInd, ] = as.numeric(as.matrix(cbind(score[maxScoreInd], POItab[j, inAttrColInd])))
+    outTab[topScoreInd, ] = as.numeric(
+      as.matrix(cbind(score[maxScoreInd], POItab[j, inAttrColInd])))
   }
   POItab[j, inAttrColInd]
   as.numeric(as.matrix(POItab[j, inAttrColInd]))
@@ -213,122 +158,6 @@ POI2RivJoin <- function(POItab, POIXY, pLineTab, attrTab, inAttr, POIname, score
   # x = which(pLineTab$Id == closestTabInd[closestRivsOrd[which.max(score)]])
   # line(pLineTab$X[x], pLineTab$Y[x], col=2)
   # 
-}
-dnStrGaugeCrawler <- function(tab, cTab){
-  # for each gauge, find the downstream gauge and add that index to a table. 
-  # The first column of this table lists the UID of the segments with gauges. 
-  # the next column is the corresponding downstream segment, etc. 
-  gCol = grep('GAUGE_Site|GAUGE_STAI', names(tab))
-  gBoo = tab[ ,gCol] != 0
-  gID = tab[gBoo ,gCol]
-  segID = tab$ARCID[gBoo]
-  
-  # check to make sure that gauges are only assigned to one segment each:
-  if (length(unique(gID)) != length(gID)){
-    message("length of unique gauge list is not equal to length of non unique gauge list,
-            indicating that single gauges assigned to multiple segments!")
-  }
-  
-  segIDtab = segID
-  thisID = segID
-  nextID = cTab$DNSTR[thisID]
-  
-  while (T %in% c(nextID>0)){
-    thisID = nextID
-    zInd = thisID == 0
-    thisID[zInd] = NA
-    segIDtab = cbind(segIDtab, thisID)
-    nextID = cTab$DNSTR[thisID]
-  }
-  
-  return(segIDtab)
-  
-  }
-lagRangeCalc = function(minCel, maxCel, dnStrDist){
-  lagRange = ceiling(cbind(dnStrDist/maxCel, dnStrDist/minCel)*0.01157407) # km to m, and sec to days conversion
-  lagRange[lagRange > 200] = 200
-  return(lagRange)
-}
-QreadAndProc = function(qTab, quantile){
-  # find which column contains dsicahrge records:
-  colNames = names(qTab)
-  #ind = grep("00060_00003|00060_00001|X01_00060_00011|00060_32400", colNames)
-  ind = grep("00060", colNames)
-  Qcol = ind[grep("_cd", colNames[ind], inv=T)][1]
-  # only consider discharges > 90th percentile:
-  Q = qTab[, Qcol]
-  Q = suppressWarnings(as.numeric(levels(Q))[Q])
-  highQ = quantile(Q, quantile, na.rm=T)[[1]]
-  Q[Q<highQ] = NA
-  return(Q)
-}
-lagCor = function(q1, q2, lagRange, k){
-  ########
-  # over a reasonable range of celerities (<10 mps), find 
-  # what time lag corresponds to the maximum correlation:
-  lagWin = 1:lagRange[k,2]
-  corVec = rep(NA, lagRange[k,2])
-  for (l in lagWin){
-    q1 = c(q1, NA)
-    q2 = c(NA, q2)
-    corVec[l] = cor(q1, q2, use="pairwise.complete.obs")
-  }
-  return(corVec)
-}
-lagCorrPlot <- function(tab, corVec, lag_day, gDnStrmDist, modelTT, i, j, k, Q1, Q2, cfs2mfsConv, dates, R, Qoverlap, gAreaDif_per, ID){
-  
-  par(mfrow=c(2,1))
-  par(mar=c(4.1,5.1,2.1,7.1))
-  # plot lag-correlation:
-  plot(corVec, type='l',
-       ylim = c(0, 1),
-       xlab = "Lag (days)",
-       ylab = "Correlation, R")
-  points(lag_day, corVec[lag_day], cex=0.8)
-  abline(v=lagRangeCalc(0.5, 2.5, gDnStrmDist[k]), lty=2, col='gray')
-  abline(v=modelTT)
-  mtext(paste("i:", i,"   j:", j, "    k:", k))
-  
-  # plot hydrograph time series and lag correlations
-  Q1[Q1==0] = 1
-  Q2[Q2==0] = 1
-  ylim = range(c(Q1, Q2, na.rm=T)*cfs2mfsConv, na.rm=T)
-  plot(dates, Q1*cfs2mfsConv,
-       ylim=ylim,
-       xlab="Year",
-       ylab="Flow (cms)",
-       #main=paste(i, j, k)
-       #log='y',
-       type='l', col=1, lwd=0.4, las=1)
-  # par(new=T)
-  # plot(c(rep(NA,lag_day),dates), c(rep(NA,lag_day), Q2)*cfs2mfsConv,
-  #      ylim=ylim,
-  #      yaxt = "n",
-  #      ylab = NA, xlab = NA,
-  #      #log='y',
-  #      type='l', col='green', lwd=0.3,
-  #      axes=F)
-  par(new=T)
-  plot(dates, Q2*cfs2mfsConv,
-       ylim=ylim,
-       yaxt = "n",
-       ylab = NA, xlab = NA,
-       #log='y',
-       type='l', col='blue', lwd=0.3,
-       axes=F)
-  axis(4, las=1, col=4, col.ticks=4, col.axis=4)
-  corns = par("usr"); par(xpd=T)
-  text(x=corns[2]+40, y=mean(corns[3:4]),
-       'Flow (cms)',
-       srt=270,
-       col=4)
-  
-  mtext(paste("dist km:", round(gDnStrmDist[k]),
-              "   cel:", round(cel_mps, 2), "m/s",
-              "   R:", round(R, 3),
-              "   Q ovrlp:", Qoverlap))
-  mtext(paste("Area dif:", round(gAreaDif_per), "%   modCel:",
-              round(sum(tab$LENGTH_KM[ID])/(modelTT)*0.01157407,2)), line=-1) #*1.3# convert from m/s to days and km to m
 }
 celerityModel_mann_rect <- function(tab, MC_WIDTH, MC_DEPTH, MC_SLOPE, MC_N, B=5/3){
   # flow wave celerity model:
@@ -478,6 +307,157 @@ cumRivTime <- function(tab, cTab){
   #print(proc.time() - ptm)
   return(tab)
 }
+tabulator <- function(tab, tabdList, varList, h, i, binInt, keep, 
+                      tabOutFdir, rivEndPtTabNames, SWOT){
+  # fill in tabulation tables with statistical distributions 
+  # used to generate Fig. S3
+  
+  # weight river lengths depending SWOT overpass frequency:
+  if (SWOT == T){
+    weight = tab$MC_LENGTH *tab$SWOT_TRAC_DEN
+  } else {
+    weight = tab$MC_LENGTH
+  }
+  
+  # fill in each distrib. table with histogram counts:
+  for (j in 1:length(varList)){
+    breaks = seq(0, ncol(tabdList[[j]])*binInt, binInt)
+    keep = keep & varList[[j]]<=max(breaks)
+    x = varList[[j]][keep]
+    x = rep(x, round(weight[keep]), each=T)
+    tabdList[[j]][h,] = hist(x, breaks, plot=F)$counts
+    tabdList[[j]] = cbind(run=1:nrow(tabdList[[j]]), tabdList[[j]])
+  }
+  
+  # on last simulation run, write out distribution table(s) to CSV(s):
+  if (h==nRun){
+    tabdListNames = names(tabdList)
+    outTabList = paste0(tabOutFdir, '/distributions/', rivEndPtTabNames[i], '/', tabdListNames, ".csv")
+    print(paste("writing out distribution tables:", outTabList))
+    for (j in 1:length(tabdList)){
+      write.csv(tabdList[[j]], outTabList[j], row.names=F)
+    }
+  }
+}
+dnStrGaugeCrawler <- function(tab, cTab){
+  # for each gauge, find the downstream gauge and add that index to a table. 
+  # The first column of this table lists the UID of the segments with gauges. 
+  # the next column is the corresponding downstream segment, etc. 
+  gCol = grep('GAUGE_Site|GAUGE_STAI', names(tab))
+  gBoo = tab[ ,gCol] != 0
+  gID = tab[gBoo ,gCol]
+  segID = tab$ARCID[gBoo]
+  
+  # check to make sure that gauges are only assigned to one segment each:
+  if (length(unique(gID)) != length(gID)){
+    message("length of unique gauge list is not equal to length of non unique 
+            gauge list, indicating that single gauges assigned to multiple 
+            segments!")
+  }
+  
+  segIDtab = segID
+  thisID = segID
+  nextID = cTab$DNSTR[thisID]
+  
+  while (T %in% c(nextID>0)){
+    thisID = nextID
+    zInd = thisID == 0
+    thisID[zInd] = NA
+    segIDtab = cbind(segIDtab, thisID)
+    nextID = cTab$DNSTR[thisID]
+  }
+  
+  return(segIDtab)
+  
+  }
+lagRangeCalc = function(minCel, maxCel, dnStrDist){
+  # km to m, and sec to days conversion:
+  lagRange = ceiling(cbind(dnStrDist/maxCel, dnStrDist/minCel)*kmpday2mpsConv) 
+  lagRange[lagRange > 200] = 200
+  return(lagRange)
+}
+QreadAndProc = function(qTab, quantile){
+  # find which column contains dsicahrge records:
+  colNames = names(qTab)
+  ind = grep("00060", colNames)
+  Qcol = ind[grep("_cd", colNames[ind], inv=T)][1]
+  # optional - only consider discharges > a specified percentile:
+  Q = qTab[, Qcol]
+  Q = suppressWarnings(as.numeric(levels(Q))[Q])
+  highQ = quantile(Q, quantile, na.rm=T)[[1]]
+  Q[Q<highQ] = NA
+  return(Q)
+}
+lagCor = function(q1, q2, lagRange, k){
+  ########
+  # over a reasonable range of celerities (<10 mps), find 
+  # what time lag corresponds to the maximum correlation:
+  lagWin = 1:lagRange[k,2]
+  corVec = rep(NA, lagRange[k,2])
+  for (l in lagWin){
+    q1 = c(q1, NA)
+    q2 = c(NA, q2)
+    corVec[l] = cor(q1, q2, use="pairwise.complete.obs")
+  }
+  return(corVec)
+}
+lagCorrPlot <- function(tab, corVec, lag_day, gDnStrmDist, modelTT, i, j, k, Q1, 
+                        Q2, cfs2mfsConv, dates, R, Qoverlap, gAreaDif_per, ID){
+  
+  par(mfrow=c(2,1))
+  par(mar=c(4.1,5.1,2.1,7.1))
+  # plot lag-correlation:
+  plot(corVec, type='l',
+       ylim = c(0, 1),
+       xlab = "Lag (days)",
+       ylab = "Correlation, R")
+  points(lag_day, corVec[lag_day], cex=0.8)
+  abline(v=lagRangeCalc(0.5, 2.5, gDnStrmDist[k]), lty=2, col='gray')
+  abline(v=modelTT)
+  mtext(paste("i:", i,"   j:", j, "    k:", k))
+  
+  # plot hydrograph time series and lag correlations
+  Q1[Q1==0] = 1
+  Q2[Q2==0] = 1
+  ylim = range(c(Q1, Q2, na.rm=T)*cfs2mfsConv, na.rm=T)
+  plot(dates, Q1*cfs2mfsConv,
+       ylim=ylim,
+       xlab="Year",
+       ylab="Flow (cms)",
+       #main=paste(i, j, k)
+       #log='y',
+       type='l', col=1, lwd=0.4, las=1)
+  # par(new=T)
+  # plot(c(rep(NA,lag_day),dates), c(rep(NA,lag_day), Q2)*cfs2mfsConv,
+  #      ylim=ylim,
+  #      yaxt = "n",
+  #      ylab = NA, xlab = NA,
+  #      #log='y',
+  #      type='l', col='green', lwd=0.3,
+  #      axes=F)
+  par(new=T)
+  plot(dates, Q2*cfs2mfsConv,
+       ylim=ylim,
+       yaxt = "n",
+       ylab = NA, xlab = NA,
+       #log='y',
+       type='l', col='blue', lwd=0.3,
+       axes=F)
+  axis(4, las=1, col=4, col.ticks=4, col.axis=4)
+  corns = par("usr"); par(xpd=T)
+  text(x=corns[2]+40, y=mean(corns[3:4]),
+       'Flow (cms)',
+       srt=270,
+       col=4)
+  
+  mtext(paste("dist km:", round(gDnStrmDist[k]),
+              "   cel:", round(cel_mps, 2), "m/s",
+              "   R:", round(R, 3),
+              "   Q ovrlp:", Qoverlap))
+  # convert from m/s to days and km to m
+  mtext(paste("Area dif:", round(gAreaDif_per), "%   modCel:",
+              round(sum(tab$LENGTH_KM[ID])/(modelTT)*kmpday2mpsConv,2)), line=-1) 
+}
 distPlot <- function(x, weight, uprQuant, breaks=NA, j, xLab, yLab, makeTab=T, latencies = NA, latencyTab=NA){
   
   # split segments into 1 km segments and multiply length 
@@ -549,101 +529,179 @@ distPlot <- function(x, weight, uprQuant, breaks=NA, j, xLab, yLab, makeTab=T, l
   }
 }
 
+################################################################################
+# HARD-CODED CONSTANTS
+################################################################################
+### local file paths:
 
+# inputs:'
+SLATTRAdir = '/Users/geoallen/Documents/research/2017_06_16_waveSpeed/git/SLATRRA'
+
+# river network input:
+origPolylinesFdir = paste0(SLATTRAdir, '/input/riv_lines') # from Andreadis etal
+rivEndPtTabFdir = paste0(SLATTRAdir, '/input/riv_endPts') # made with ArcMap
+rivMidPtTabFdir = paste0(SLATTRAdir, '/input/riv_midPts') # made with ArcMap
+rivNetworkConnectFdir = paste0(SLATTRAdir, '/input/riv_conn') # made with RRR
+# river netowrk
+# From Landscan/Natural Earth:
+cityFpath = paste0(SLATTRAdir, '/input/city/ne_10m_populated_places.dbf') 
+damFpath = paste0(SLATTRAdir, '/input/dam/GRanD_dams_v1_1.dbf') # from GRanD
+gaugeFpath = paste0(SLATTRAdir, '/input/gauge/gages_x010g.dbf') # from USGS WIS
+gaugeRecordFdir = paste0(SLATTRAdir, '/input/gauge/records') # from USGS WIS
+
+# outputs:
+cityDamGaugeFdir = paste0(SLATTRAdir, '/output/riv_POIjoin') # mid-process 
+# write out. Shapefiles with joined cities, dams, and gauges
+obsOutFdir = paste0(SLATTRAdir, '/output/riv_val')
+rivOutFdir = paste0(SLATTRAdir, '/output/riv_out')
+figOutFdir = paste0(SLATTRAdir, '/output/figs')
+tabOutFdir = paste0(SLATTRAdir, '/output/tabs')
+
+### variables:
+# hydroBasins with river networks that drain north of 60N lat. (SRTM data gap):
+basin2rm = c(3000001840,3000004740,3000009130,2000028310,
+             2000041840,2000043720,8000009560)
+
+# cubic feet per second to cubic peters per second conversion:
+cfs2mfsConv = 0.028316847
+# km/day to m/s conversion:
+kmpday2mpsConv = 0.01157407
+# threshold slope (unncessary if using monte carlo simulation):
+zeroSlope = 1e-5
+# maximum days to tabulated. Sets number of columns recorded in output tabs:
+maxCel = 200
+maxTT = 200
+
+# get list of input file paths:
+rivEndPtTabFnames = list.files(rivEndPtTabFdir, 'dbf', recursive=T)
+rivEndPtTabNames = substr(rivEndPtTabFnames, 1, 2)
+rivEndPtTabFpaths = paste0(rivEndPtTabFdir, '/', rivEndPtTabFnames)
+
+rivMidPtTabFnames = list.files(rivMidPtTabFdir, 'dbf', recursive=T)
+rivMidPtTabNames = substr(rivMidPtTabFnames, 1, 2)
+rivMidPtTabFpaths = paste0(rivMidPtTabFdir, '/', rivMidPtTabFnames)
+midPtMatch = match(rivEndPtTabNames, rivMidPtTabNames)
+
+rivNetworkConnectFnames = list.files(rivNetworkConnectFdir)
+rivNetworkConnectFpaths = list.files(rivNetworkConnectFdir, 'csv', recursive=T, 
+                                     full.names=T)
+
+origPolylinesFpaths = paste0(origPolylinesFdir, '/', rivEndPtTabFnames)
+
+cityDamGaugeFpaths = paste0(cityDamGaugeFdir, '/', rivEndPtTabFnames)
+obsOutFpaths = paste0(obsOutFdir, '/', rivEndPtTabFnames)
+rivOutFpaths = paste0(rivOutFdir, '/', rivEndPtTabFnames)
+celTabOutFpaths = paste0(rivOutFdir, '/', rivEndPtTabNames, 'riv_rangeGT05.csv')
+# list gauge files:
+gFnames = list.files(gaugeRecordFdir)
+gNames = as.numeric(sub('.csv', '', gFnames))
+gFpaths = paste0(gaugeRecordFdir, '/', gFnames)
+# outpaths for column mean and meadian tabs:
+meanTabOutPath = paste0(tabOutFdir, '/run_averages/', rivEndPtTabNames, '_runMeans.csv')
+medTabOutPath = paste0(tabOutFdir, '/run_averages/', rivEndPtTabNames, '_runMedians.csv')
+# create directories if they don't exist:
+dirCreater(dirPath = c(cityDamGaugeFdir, obsOutFdir, rivOutFdir,  figOutFdir, 
+                       paste0(tabOutFdir, '/distributions/', rivEndPtTabNames, '/')),
+           paste0(tabOutFdir, '/run_averages/'))
 
 ################################################################################
 # POI JOIN TO RIVER NETWORK
 ################################################################################
-
-# read in city table:
-cityTab = foreign::read.dbf(cityFpath);  
-cityTab = cityTab[match(c('NAME','LATITUDE','LONGITUDE','POP_MAX','POP_MIN'), names(cityTab))]
-cityXY = cbind(cityTab$LONGITUDE, cityTab$LATITUDE)
-
-# read in dam table:
-damTab = foreign::read.dbf(damFpath);  
-damTab = damTab[match(c('DAM_NAME','LAT_DD','LONG_DD','YEAR','AREA_SKM','CAP_MCM'), names(damTab))]
-damXY = cbind(damTab$LONG_DD, damTab$LAT_DD)
-
-# read in gauge table:
-gaugeTab = foreign::read.dbf(gaugeFpath);
-# added lat lon fields using WGS84 in arc:
-gaugeTab = gaugeTab[match(c('Site_NO','lat','lon', 'HUC8'), names(gaugeTab))]
-gaugeXY = cbind(gaugeTab$lon, gaugeTab$lat)
-
-# run through each continent and match up cities, dams, and gauges to the river networks: 
-shpFpaths = sub('.dbf', '.shp', origPolylinesFpaths)
-for (i in 1:length(shpFpaths)){ #c(4,6)){ #
-  print(i)
-  # extract the verticies of the polylines # (very slow - took africa 3 hours to read in):
-  # consider trying much faster function, sf::st_combine(st_read(shpFpaths[i])))
-  ptm = proc.time()
-  pLineTab = read.shp(shpFpaths[i])
-  print(proc.time() - ptm)
-  ptm = proc.time()
-  pLineTab = convert.to.simple(pLineTab)
-  print(proc.time() - ptm)
-  
-  # extract end point verticies and add a city field to tab:
-  attrTab = foreign::read.dbf(origPolylinesFpaths[i])
-  
-  # for each city, find the river segment that the city is most likely to be located on:
-  ptm = proc.time()
-  attrTab = POI2RivJoin(
-    POItab = cityTab, 
-    POIXY = cityXY, 
-    pLineTab = pLineTab, 
-    attrTab = attrTab, 
-    inAttr = c('POP_MAX'), # POI table column name(s) to be transfered to the output attribute table. 
-    # right now, only numerical attributes can be transferred between tables. 
-    POIname = 'CITY', # prefix for what type of POI data this is. Used for output table column names
-    scoreFunc = function(area, dist){ return(area/dist^2) }, # distance to score the relationship between POI and segments
-    sRad = 3e4, # specify the dimensions of the initial square subset (in meters)
-    smallSrad = 1e4) # specify radius of secondary search radius (in meters)
-  print(proc.time() - ptm)
-  
-  # for each dam, find the river segment that the dam is most likely to be located on:
-  ptm = proc.time()
-  attrTab = POI2RivJoin(
-    POItab = damTab, 
-    POIXY = damXY, 
-    pLineTab = pLineTab, 
-    attrTab = attrTab, 
-    inAttr = c('AREA_SKM', 'CAP_MCM'), # POI table column name(s) to be transfered to the output attribute table. 
-    # right now, only numerical attributes can be transferred between tables. 
-    POIname = 'DAM', # prefix for what type of POI data this is. Used for output table column names
-    scoreFunc = function(area, dist){ return(area/dist^3) }, # distance to score the relationship between POI and segments
-    sRad = 3e4, # specify the dimensions of the initial square subset (in meters)
-    smallSrad = 3e3) # specify radius of secondary search radius (in meters)
-  print(proc.time() - ptm)
-  
-  # for each gauge, find the river segment that the gauge is most likely to be located on:
-  ptm = proc.time()
-  attrTab = POI2RivJoin(
-    POItab = gaugeTab, 
-    POIXY = gaugeXY, 
-    pLineTab = pLineTab, 
-    attrTab = attrTab, 
-    inAttr = c('Site_NO', 'HUC8'), # POI table column name(s) to be transfered to the output attribute table. 
-    #inAttr = c('STAID', 'DRAIN_SQKM', 'HUC02'), # POI table column name(s) to be transfered to the output attribute table. 
-    # right now, only numerical attributes can be transferred between tables. 
-    POIname = 'GAUGE', # prefix for what type of POI data this is. Used for output table column names
-    scoreFunc = function(area, dist){ return(area/dist^3) }, # distance to score the relationship between POI and segments
-    sRad = 3e4, # specify the dimensions of the initial square subset (in meters)
-    smallSrad = 2e3) # specify radius of secondary search radius (in meters)
-  print(proc.time() - ptm)
-  
-  # write out POI table:
-  foreign::write.dbf(attrTab, cityDamGaugeFpaths[i])
-}
-
-system("say done run")
-
-
-
-
-
-
+# 
+# # read in city table:
+# cityTab = foreign::read.dbf(cityFpath);  
+# cityTab = cityTab[match(c('NAME','LATITUDE','LONGITUDE','POP_MAX','POP_MIN'), 
+#                         names(cityTab))]
+# cityXY = cbind(cityTab$LONGITUDE, cityTab$LATITUDE)
+# 
+# # read in dam table:
+# damTab = foreign::read.dbf(damFpath);  
+# damTab = damTab[match(
+#   c('DAM_NAME','LAT_DD','LONG_DD','YEAR','AREA_SKM','CAP_MCM'), names(damTab))]
+# damXY = cbind(damTab$LONG_DD, damTab$LAT_DD)
+# 
+# # read in gauge table:
+# gaugeTab = foreign::read.dbf(gaugeFpath);
+# # added lat lon fields using WGS84 in arc:
+# gaugeTab = gaugeTab[match(c('Site_NO','lat','lon', 'HUC8'), names(gaugeTab))]
+# gaugeXY = cbind(gaugeTab$lon, gaugeTab$lat)
+# 
+# # run through each continent and match up cities, dams, and gauges to the 
+# # river networks: 
+# shpFpaths = sub('.dbf', '.shp', origPolylinesFpaths)
+# for (i in 1:length(shpFpaths)){ #c(4,6)){ #
+#   print(i)
+#   # extract the verticies of the polylines # (very slow - took africa 3 hours 
+#   # to read in): 
+#   #consider trying much faster function, sf::st_combine(st_read(shpFpaths[i])))
+#   ptm = proc.time()
+#   pLineTab = read.shp(shpFpaths[i])
+#   print(proc.time() - ptm)
+#   ptm = proc.time()
+#   pLineTab = convert.to.simple(pLineTab)
+#   print(proc.time() - ptm)
+#   
+#   # extract end point verticies and add a city field to tab:
+#   attrTab = foreign::read.dbf(origPolylinesFpaths[i])
+#   
+#   # for each city, find the river segment that the city is most likely 
+#   # to be located on:
+#   ptm = proc.time()
+#   attrTab = POI2RivJoin(
+#     POItab = cityTab, 
+#     POIXY = cityXY, 
+#     pLineTab = pLineTab, 
+#     attrTab = attrTab, 
+#     inAttr = c('POP_MAX'), # POI table column name(s) to be transfered to the output attribute table. 
+#     # right now, only numerical attributes can be transferred between tables. 
+#     POIname = 'CITY', # prefix for what type of POI data this is. Used for output table column names
+#     scoreFunc = function(area, dist){ return(area/dist^2) }, # distance to score the relationship between POI and segments
+#     sRad = 3e4, # specify the dimensions of the initial square subset (in meters)
+#     smallSrad = 1e4) # specify radius of secondary search radius (in meters)
+#   print(proc.time() - ptm)
+#   
+#   # for each dam, find the river segment that the dam is most likely to be located on:
+#   ptm = proc.time()
+#   attrTab = POI2RivJoin(
+#     POItab = damTab, 
+#     POIXY = damXY, 
+#     pLineTab = pLineTab, 
+#     attrTab = attrTab, 
+#     inAttr = c('AREA_SKM', 'CAP_MCM'), # POI table column name(s) to be transfered to the output attribute table. 
+#     # right now, only numerical attributes can be transferred between tables. 
+#     POIname = 'DAM', # prefix for what type of POI data this is. Used for output table column names
+#     scoreFunc = function(area, dist){ return(area/dist^3) }, # distance to score the relationship between POI and segments
+#     sRad = 3e4, # specify the dimensions of the initial square subset (in meters)
+#     smallSrad = 3e3) # specify radius of secondary search radius (in meters)
+#   print(proc.time() - ptm)
+#   
+#   # for each gauge, find the river segment that the gauge is most likely to be located on:
+#   ptm = proc.time()
+#   attrTab = POI2RivJoin(
+#     POItab = gaugeTab, 
+#     POIXY = gaugeXY, 
+#     pLineTab = pLineTab, 
+#     attrTab = attrTab, 
+#     inAttr = c('Site_NO', 'HUC8'), # POI table column name(s) to be transfered to the output attribute table. 
+#     #inAttr = c('STAID', 'DRAIN_SQKM', 'HUC02'), # POI table column name(s) to be transfered to the output attribute table. 
+#     # right now, only numerical attributes can be transferred between tables. 
+#     POIname = 'GAUGE', # prefix for what type of POI data this is. Used for output table column names
+#     scoreFunc = function(area, dist){ return(area/dist^3) }, # distance to score the relationship between POI and segments
+#     sRad = 3e4, # specify the dimensions of the initial square subset (in meters)
+#     smallSrad = 2e3) # specify radius of secondary search radius (in meters)
+#   print(proc.time() - ptm)
+#   
+#   # write out POI table:
+#   foreign::write.dbf(attrTab, cityDamGaugeFpaths[i])
+# }
+# 
+# system("say done run")
+# 
+# 
+# 
+# 
+# 
+#
 ################################################################################
 #CELERITY & TRAVEL TIME
 ################################################################################
@@ -652,26 +710,27 @@ system("say done run")
 # DONE: elevation: gaussian mu=slope, sd=(FIND REF)
 # DONE: zero slopes: uniform 1e-5 to 1e3 (or 1e-2)
 # DONE: river length: uniform: 1-1.5
-# width: skewed normal (or uniform) 5%, 50%, 95% from Andreadis etal 
-# depth: gaussian 5%, 50%, 95% from Andreadis etal 
-# n: gaussian: 5%, 50%, 95% : 0.02, 0.03, 0.04 (or just assume 0.03)
-# Channel shape -- argue it is a can of worms (add a sentence about how width and depth are so uncertain, beta and shape cancel out)
+# DONE: width: skewed normal (or uniform) 5%, 50%, 95% from Andreadis etal 
+# DONE: depth: gaussian 5%, 50%, 95% from Andreadis etal 
+# DONE: n: gaussian: 5%, 50%, 95% : 0.02, 0.03, 0.04 (or just assume 0.03)
+# DONE: Channel shape -- argue it is a can of worms (add a sentence about how width and depth are so uncertain, beta and shape cancel out)
 -- 
-  
-  
-  
-
-
 
 ptm = proc.time()
-nRun = 200
-for (h in 1:nRun){
+nRun = 3
+
+# For each continent, calculate flow wave celerity and travel time:
+for (i in 4:4){ # 1:length(cityDamGaugeFpaths)){ #
   
-  # Calculate flow wave celerity and travel time for each segment:
-  i = 4 #for (i in 1:length(cityDamGaugeFpaths)){ 
+  print(paste("Begin simulations in region:", rivEndPtTabNames[i]))
+  
+  # for sensitivity analysis, run model several times with varying input parameters:
+  for (h in 1:nRun){
+    
+    print(paste("Begin simulation run:", h))
     
     # read in river polyline attribute table:
-    if (h==1){tab_raw = foreign::read.dbf(cityDamGaugeFpaths[i])}
+    if (h==1){ tab_raw = foreign::read.dbf(cityDamGaugeFpaths[i]) }
     tab=tab_raw
     
     # read in and process segment endpoint shapefile table:
@@ -700,7 +759,7 @@ for (h in 1:nRun){
     
     # simulate slope uncertainty through monte carlo error propogation:
     N = nrow(tab)
-    MC_LENCOR = runif(n=N, min=1, max=1.5) # simulate uncertainty of river length (low res. DEM short circuits river meanders)
+    MC_LENCOR = runif(n=N, min=1.1, max=1.5) # simulate uncertainty of river length (low res. DEM short circuits river meanders)
     MC_LENGTH = EPtab$LENGTH_KM[evenInd]*MC_LENCOR
     MC_UPSTR_ELEV = runif(n=N, min=EPtab$ELEV_M[oddInd]-5, max=EPtab$ELEV_M[oddInd]+5) # include 10 m of uncertainty to elevation
     MC_DNSTR_ELEV = runif(n=N, min=EPtab$ELEV_M[evenInd]-5, max=EPtab$ELEV_M[evenInd]+5) # include 10 m of uncertainty to elevation
@@ -722,7 +781,7 @@ for (h in 1:nRun){
     MC_WIDTH = abs(rnorm(n=N, mean=tab$WIDTH, sd=gm_mean(c(tab$WIDTH-tab$WIDTH5, tab$WIDTH95-tab$WIDTH))/2))
     MC_DEPTH = abs(rnorm(n=N, mean=tab$DEPTH, sd=gm_mean(c(tab$DEPTH-tab$DEPTH5, tab$DEPTH95-tab$DEPTH))/2))
     # generate roughness uncertainty from XYZ: 
-    MC_N = abs(rnorm(n=N, mean=0.03, sd=0.005)) # rnorm(n=N, mean=0.03, sd=0.1) <-- need to remove MC_N >= 0
+    MC_N = runif(n=N, min=0.02, max=0.05) # abs(rnorm(n=N, mean=0.03, sd=0.005)) # 
     
     ####
     # calculate flow wave celerity for each segment:
@@ -740,7 +799,8 @@ for (h in 1:nRun){
       DAM_UPSTR_TIME_DAY = # upstream from nearest dam flow wave travel time in days
       rep(NA, nrow(tab))
     tab = cbind(tab, hBASIN, GLCC, FLOODHAZARD, SWOT_TRAC_DEN, 
-                UPSTR_DIST_KM, UPSTR_TIME_DAY, CITY_UPSTR_TIME_DAY, DAM_UPSTR_TIME_DAY)
+                UPSTR_DIST_KM, UPSTR_TIME_DAY, CITY_UPSTR_TIME_DAY, DAM_UPSTR_TIME_DAY,
+                MC_WIDTH, MC_DEPTH, MC_LENGTH, MC_SLOPE, MC_ZSLOPE, MC_N)
     
     # read in midPtTab:
     midPtTab = foreign::read.dbf(rivMidPtTabFpaths[midPtMatch[i]])
@@ -756,54 +816,154 @@ for (h in 1:nRun){
     # calculate the cumulative length and time along
     # entire river network:
     tab = cumRivTime(tab, cTab)
-    # consider adding reverse stream order field 
   
     # add tab data to polyline shapefile data:
     # replace previously modified file with new copy:
-    if (file.exists(origPolylinesFpaths[i])){
-      file.remove(rivOutFpaths[i])
-      file.copy(origPolylinesFpaths[i], rivOutFpaths[i])
+    if (h == 1){
+      if (file.exists(origPolylinesFpaths[i])){
+        file.remove(rivOutFpaths[i])
+        file.copy(origPolylinesFpaths[i], rivOutFpaths[i])
+      }
+      # match up new data indices to original indices:
+      origTab = foreign::read.dbf(rivOutFpaths[i])
+      m = match(origTab$ARCID, tab$ARCID)
     }
+    # reorder data to polyline vectors:
+    tab = tab[m, ]
     
-    # transfer data to polyline vectors:
-    pLineTab = foreign::read.dbf(rivOutFpaths[i])
-    m = match(pLineTab$ARCID, tab$ARCID)
-    pLineTab = tab[m, ] #cbind(pLineTab, tab[m, ((ncol(pLineTab)+1):ncol(tab))])
-    #print(cbind(1:ncol(pLineTab), names(pLineTab)))
-    #foreign::write.dbf(pLineTab, rivOutFpaths[i])
-  
-    # CUMULATIVE TABLES:
-    colMean = colMeans(pLineTab)
-    colMed = colMedians(as.matrix(pLineTab))
-    
-    if (h == 1){ 
-      meanTab = colMean
-      medTab = colMed
+    # WEIGHTED AVERAGED SHAPEFILE DBF:
+    # take the mean value of all simulations for each segment in the 
+    # global flowline network:
+    if (h == 1){
+      weightMeanTab = tab
     } else {
-      meanTab = cbind(meanTab, colMean)
-      medTab = cbind(medTab, colMed)
+      weightMeanTab = Reduce(`+`, Map(`*`, list(weightMeanTab, tab), c((h-1), 1)) )
     }
     
-    print(paste0(h/nRun, median(pLineTab$CELER_MPS)))
-  #}
 
-}
+    # CUMULATIVE TABLES:
+    # for each simulation run, take the mean and median of each column
+    # and concatenate them to a mean and median table. Can be used for
+    # convergence plots: 
+    if (h == 1){ 
+      meanTab = medTab = tableMaker(names(tab), nRun, NA)
+    }
+    meanTab[h,] = colMeans(tab)
+    medTab[h,] = colMedians(as.matrix(tab))
+    if (h == nRun){
+      meanTab = cbind(run=1:nRun, meanTab)
+      medTab = cbind(run=1:nRun, medTab)
+    }
+    
+    
+    
+    # TABULATED CELERITY AND TRAVEL TIME TABLES:
+    # for each simulation tabulate the TT histograms seen in Fig. S3.
+    # additionally, tabulate the distribution of celerity:
+    binInt=1
+    wide = tab$MC_WIDTH > 100
+    notDesert = tab$GLCC != 8
+    Sof60 = !(tab$hBASIN %in% as.numeric(basin2rm))
+    
+    # create distribution output tables:
+    if (h == 1){
+      # celerity tables:
+      tabdCel = tabdCel_swot = 
+        tableMaker(paste0(seq(1, maxCel, by=binInt), "_mps"), nRun, 0)
+      # travel time tables
+      tabdTT_b = tabdTT_c = tabdTT_d = 
+        tabdTT_b_swot = tabdTT_c_swot = tabdTT_d_swot = 
+        tableMaker(paste0("day_", seq(1, maxTT, by=binInt)), nRun, 0)
+    }
+    
+    # fill in and write out tabulation tables with statistical distributions 
+    # used to generate Table 1 and Fig. S3:
+    # celerities of all rivers:
+    tabulator(tab, tabdList=list(tabdCel=tabdCel), varList=list(tab$CELER_MPS), 
+              h, i, binInt, keep=notDesert & Sof60, tabOutFdir, rivEndPtTabNames, SWOT=F)
+    # celerities of SWOT rivers only:
+    tabulator(tab, tabdList=list(tabdCel_swot=tabdCel_swot), varList=list(tab$CELER_MPS), 
+              h, i, binInt, keep=notDesert & Sof60, tabOutFdir, rivEndPtTabNames, SWOT=T)
+    # travel times of all rivers:
+    tabulator(tab, 
+              tabdList=list(tabdTT_b=tabdTT_b, tabdTT_c=tabdTT_c, tabdTT_d=tabdTT_d), 
+              varList=list(tab$UPSTR_TIME_DAY, tab$CITY_UPSTR_TIME_DAY, tab$DAM_UPSTR_TIME_DAY), 
+              h, i, binInt, keep=notDesert & Sof60, tabOutFdir, rivEndPtTabNames, SWOT=F)
+    # travel times of SWOT rivers only:
+    tabulator(tab, 
+              tabdList=list(tabdTT_b_swot=tabdTT_b_swot, tabdTT_c_swot=tabdTT_c_swot, 
+                            tabdTT_d_swot=tabdTT_d_swot), 
+              varList=list(tab$UPSTR_TIME_DAY, tab$CITY_UPSTR_TIME_DAY, tab$DAM_UPSTR_TIME_DAY), 
+              h, i, binInt, keep=notDesert & Sof60, tabOutFdir, rivEndPtTabNames, SWOT=T)
+  
+  } # end sensitivity loop
+
+  # write out mean shapefile dbf:
+  print(paste("Writing out mean shapefile dbf:", rivOutFpaths[i]))
+  foreign::write.dbf(weightMeanTab, rivOutFpaths[i])
+  
+  
+  # write out mean and median column tabs:
+  print(paste("writing out column averaged table:", meanTabOutPath[i]))
+  write.csv(as.data.frame(t(meanTab)), meanTabOutPath[i], row.names=F)
+  write.csv(as.data.frame(t(medTab)), medTabOutPath[i], row.names=F)
+
+} # end region loop
 
 print(proc.time() - ptm)
 system("say travel time calculation done run!")
 
-x = as.data.frame(cbind(x, cumsum(x[,2])/x[,1], cumsum(x[,3])/x[,1], cumsum(x[,4])/x[,1]))
-names(x) = c("run", "med", "mean", "sd", "cumAveMed", "cumAveMean", "cumAveSD")
 
-plot(range(x$run), range(x$cumAveMed), type='n')
-lines(x$run, x$cumAveMed, col=4)
-abline(h=mean(x$med), col=4, lty=2)
-#par(new=T)
-#plot(range(x$run), range(x$cumAveMean), type='n')
-#lines(x$run, x$cumAveMean, col=2)
-#abline(h=mean(x$mean), col=2, lty=2)
+# check to make sure all three types of tables were written out correctly. 
 
-hist(x$cumAveMed, 100)
+
+
+## relationship between celerity and travel time is not linear, therefore it we must run
+## the monte carlo simulation through the entire cumulative upstream time:
+x = read.csv(meanTabOut)
+x = read.csv(medTabOut)
+
+run = 1:nrow(x)
+
+# celerity
+mn = mean(x$CELER_MPS)
+std = sd(x$CELER_MPS)
+cel_cumAve = cumsum(x$CELER_MPS)/run
+plot(range(run), range(cel_cumAve), type='n')
+#polygon(x=c(0, nrow(x), nrow(x), 0), y=c(mn+std, mn+std, mn-std, mn-std), 
+# col=rgb(0,0,1,0.3), border=NA)
+abline(h=mean(mn), col=4, lty=2)
+lines(run, cel_cumAve, col=4)
+
+# basin travel time:
+TT_b_cumAve = cumsum(x$UPSTR_TIME_DAY)/run
+plot(range(run), range(TT_b_cumAve), type='n')
+lines(run, TT_b_cumAve, col=4)
+abline(h=mean(TT_b_cumAve), col=4, lty=2)
+
+# histogram:
+hist(cel_cumAve, 100)
+hist(TT_b_cumAve, 100)
+
+# median quartiles:
+MC_med_cel_quartiles = quantile(x$CELER_MPS, seq(0, 1, 0.25))
+# 0%      25%      50%      75%     100% 
+# 1.887493 1.901052 1.904646 1.907658 1.915139 
+for (i in 1:length(MC_med_cel_quartiles)){
+  m = which.min(abs(x$CELER_MPS-MC_med_cel_quartiles[i]))
+  print(c(x$CELER_MPS[m], x$UPSTR_TIME_DAY[m]))
+}
+
+MC_med_TTb_quartiles = quantile(x$UPSTR_TIME_DAY, seq(0, 1, 0.25))
+# 0%      25%      50%      75%     100% 
+# 1.721756 1.766040 1.788588 1.811314 1.883037 
+
+
+
+
+
+
+
 
 
 ################################################################################
@@ -819,7 +979,7 @@ pdf(pdfOut, width = 7, height=5)
 minOvrlp = 5*365
 
 ptm = proc.time()
-# run through each continent and search for gauges:
+# run through each region with gauges (na & ca) and conduct validation:
 for (i in c(4,6)){
   
   # read in segment attribute table and add empirical celerity & R columns:
@@ -975,17 +1135,17 @@ for (i in c(4,6)){
       # include each individual segIDs and only 1 row per celerity result...
       ID = segIDtab[gRows[j], 1:which(gVec == gDnStrmID[k])]
       
-      # # calculate correlation coefficient and celerity:
+      # calculate correlation coefficient and celerity:
       R = corVec[lag_day]
       Rrange = corRange[2]-corRange[1]
-      cel_mps = (gDnStrmDist[k] / lag_day)*0.01157407 *1.3 # convert from m/s to days and km to m
+      cel_mps = (gDnStrmDist[k] / lag_day)*kmpday2mpsConv *1.3 # convert from m/s to days and km to m
       gDist_km = gDnStrmDist[k]
       gAreaDif_per = 100*(gDnStrmArea[k]-areaTab[gRow,1])/gDnStrmArea[k]
       celTabMat = cbind(ID, R, cel_mps, gDist_km, gAreaDif_per, lag_day, Qoverlap, Rrange)
       celTab = rbind(celTab, celTabMat)
       
       # fill in tabs:
-      modelTT = sum(tab$LENGTH_KM[ID]/(tab$CELER_MPS[ID]))*0.01157407 *1.3# convert from m/s to days and km to m
+      modelTT = sum(tab$LENGTH_KM[ID]/(tab$CELER_MPS[ID]))*kmpday2mpsConv *1.3# convert from m/s to days and km to m
       modelTTtab[gRow, gDnStrmInd][gFmatch_dnStrmInd[k]] = modelTT
       lagTimeTab[gRow, gDnStrmInd][gFmatch_dnStrmInd[k]] = lag_day
       corTab[gRow, gDnStrmInd][gFmatch_dnStrmInd[k]] = corVec[lag_day]
@@ -1175,6 +1335,8 @@ print(paste0(round(quantile(x, .5)), "+",
              round(quantile(x, .75)-quantile(x, .5)), "-",
              round(quantile(x, .5)-quantile(x, .25))))
 # swot-observable rivers:
+
+# FIXME: multiply length by N overpasses:
 keep = notDesert & Sof60 & wide
 x = gTab$UPSTR_TIME[keep]
 print(paste0(round(quantile(x, .5)), "+",
@@ -1197,13 +1359,12 @@ print(paste0(round(quantile(x, .5)), "+",
 
 
 ####### ALL RIVERS
-pdfDir = "/Users/geoallen/Documents/research/2017_06_16_waveSpeed/figs/sensitivityAnalysis/"
-pdfOut = paste0(pdfDir, "distributions_woSWOTwSWOTRivers_minSlope", zeroSlope, ".pdf")
+pdfOut = paste0(figOutFdir, "distributions_woSWOTwSWOTRivers_minSlope", zeroSlope, ".pdf")
 
 pdf(pdfOut, width=7, height=9)
 layout(matrix(1:6, nrow=3, byrow=F))
 
-# plot the entire dataset:
+# plot distributions of travel time over the entire dataset:
 keep = notDesert & Sof60
 latencyTab = as.data.frame(latencies)
 names(latencyTab) = "Latency (days)"
@@ -1220,7 +1381,8 @@ names(latencyTab)[j] = "Observable global river network length"
 # b. CITY TRAVEL TIME:
 j = j+1
 nonZeroTravelTime = gTab$CITY_UPSTR>0
-latencyTab = distPlot(x=gTab$CITY_UPSTR[keep & nonZeroTravelTime], weight=gTab$LENGTH_KM[keep & nonZeroTravelTime], 
+latencyTab = distPlot(x=gTab$CITY_UPSTR[keep & nonZeroTravelTime], 
+         weight=gTab$LENGTH_KM[keep & nonZeroTravelTime], 
          uprQuant=uprQuant, breaks=breaks, j,
          xLab="Travel Time to Next Downstream City (Days)",
          yLab="Global River Length (km)",
@@ -1230,7 +1392,8 @@ names(latencyTab)[j] = "Next downstream city"
 # c. DAM TRAVEL TIME:
 j = j+1
 nonZeroTravelTime = gTab$DAM_UPSTR_>0
-latencyTab = distPlot(x=gTab$DAM_UPSTR_[keep & nonZeroTravelTime], weight=gTab$LENGTH_KM[keep & nonZeroTravelTime], 
+latencyTab = distPlot(x=gTab$DAM_UPSTR_[keep & nonZeroTravelTime], 
+         weight=gTab$LENGTH_KM[keep & nonZeroTravelTime], 
          uprQuant=uprQuant, breaks=breaks, j,
          xLab="Travel Time to Next Downstream Dam (Days)",
          yLab="Global River Length (km)",
@@ -1251,7 +1414,8 @@ names(latencyTab) = "Latency (days)"
 
 # d. BASIN TRAVEL TIME:
 j = j+1
-latencyTab = distPlot(x=gTab$UPSTR_TIME[keep], weight=gTab$LENGTH_KM[keep], 
+latencyTab = distPlot(x=gTab$UPSTR_TIME[keep], 
+         weight=gTab$LENGTH_KM[keep]*gTab$SWOT_TRAC_[keep], 
          uprQuant=uprQuant, breaks=breaks, j,
          xLab="Travel Time to Basin Outlet(Days)",
          yLab="Global River Length (km)",
@@ -1261,7 +1425,8 @@ names(latencyTab)[j] = "Observable global river network length"
 # e. CITY TRAVEL TIME:
 j = j+1
 nonZeroTravelTime = gTab$CITY_UPSTR>0
-latencyTab = distPlot(x=gTab$CITY_UPSTR[keep & nonZeroTravelTime], weight=gTab$LENGTH_KM[keep & nonZeroTravelTime], 
+latencyTab = distPlot(x=gTab$CITY_UPSTR[keep & nonZeroTravelTime], 
+         weight=gTab$LENGTH_KM[keep & nonZeroTravelTime]*gTab$SWOT_TRAC_[keep & nonZeroTravelTime], 
          uprQuant=uprQuant, breaks=breaks, j,
          xLab="Travel Time to Next Downstream City (Days)",
          yLab="Global River Length (km)",
@@ -1271,7 +1436,8 @@ names(latencyTab)[j] = "Next downstream city"
 # f. DAM TRAVEL TIME:
 j = j+1
 nonZeroTravelTime = gTab$DAM_UPSTR_>0
-latencyTab = distPlot(x=gTab$DAM_UPSTR_[keep & nonZeroTravelTime], weight=gTab$LENGTH_KM[keep & nonZeroTravelTime], 
+latencyTab = distPlot(x=gTab$DAM_UPSTR_[keep & nonZeroTravelTime], 
+         weight=gTab$LENGTH_KM[keep & nonZeroTravelTime]*gTab$SWOT_TRAC_[keep & nonZeroTravelTime],
          uprQuant=uprQuant, breaks=breaks, j,
          xLab="Travel Time to Next Downstream Dam (Days)",
          yLab="Global River Length (km)",
