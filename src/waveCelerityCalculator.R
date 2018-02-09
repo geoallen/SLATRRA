@@ -819,7 +819,8 @@ for (i in 1:7){ # 1:length(cityDamGaugeFpaths)){ #
     if (h == 1){
       weightMeanTab = tab
     } else {
-      weightMeanTab = Reduce(`+`, Map(`*`, list(weightMeanTab, tab), c((h-1), 1)) )
+      weights = c((h-1), 1)/h
+      weightMeanTab = Reduce(`+`, Map(`*`, list(weightMeanTab, tab), weights))
     }
     
 
@@ -834,7 +835,7 @@ for (i in 1:7){ # 1:length(cityDamGaugeFpaths)){ #
     medTab[h,] = colMedians(as.matrix(tab))
     if (h == nRun){
       meanTab = cbind(run=1:nRun, meanTab)
-      medTab = cbind(run=1:nRun, medTab)
+      medTab = cbind(run=1:nRun, medTab, TOT_LENGTH_KM=sum(tab$MC_LENGTH))
     }
     
     # TABULATED CELERITY AND TRAVEL TIME TABLES:
@@ -903,50 +904,7 @@ print(proc.time() - ptm)
 system("say travel time calculation done run!")
 
 # TEMP:
-################################################################################
-# TEMP TEMP TEMP
-## relationship between celerity and travel time is not linear, therefore it we must run
-## the monte carlo simulation through the entire cumulative upstream time:
-x = read.csv(meanTabOutPath[i])
-x = read.csv(meanTabOutPath[i])
 
-run = 1:nrow(x)
-
-# celerity
-mn = mean(x$CELER_MPS)
-std = sd(x$CELER_MPS)
-cel_cumAve = cumsum(x$CELER_MPS)/run
-plot(range(run), range(cel_cumAve), type='n')
-#polygon(x=c(0, nrow(x), nrow(x), 0), y=c(mn+std, mn+std, mn-std, mn-std), 
-# col=rgb(0,0,1,0.3), border=NA)
-abline(h=mean(mn), col=4, lty=2)
-lines(run, cel_cumAve, col=4)
-
-# basin travel time:
-TT_b_cumAve = cumsum(x$UPSTR_TIME_DAY)/run
-plot(range(run), range(TT_b_cumAve), type='n')
-lines(run, TT_b_cumAve, col=4)
-abline(h=mean(TT_b_cumAve), col=4, lty=2)
-
-# histogram:
-hist(cel_cumAve, 100)
-hist(TT_b_cumAve, 100)
-
-# median quartiles:
-MC_med_cel_quartiles = quantile(x$CELER_MPS, seq(0, 1, 0.25))
-# 0%      25%      50%      75%     100% 
-# 1.887493 1.901052 1.904646 1.907658 1.915139 
-for (i in 1:length(MC_med_cel_quartiles)){
-  m = which.min(abs(x$CELER_MPS-MC_med_cel_quartiles[i]))
-  print(c(x$CELER_MPS[m], x$UPSTR_TIME_DAY[m]))
-}
-
-MC_med_TTb_quartiles = quantile(x$UPSTR_TIME_DAY, seq(0, 1, 0.25))
-# 0%      25%      50%      75%     100% 
-# 1.721756 1.766040 1.788588 1.811314 1.883037 
-
-#^^ TEMP TEMP TEMP
-################################################################################
 
 
 
@@ -1260,11 +1218,81 @@ print(paste("standard error:", round(se(error), 1)))
 
 
 ################################################################################
-# DISTRIBUTION PLOTS - TABLE 1, FIGURE S3
+# GRAPHS AND TABLES, FIGURE S3
 ################################################################################
 
+
+
+# MONTE CARLO CONVERGENCE PLOT:
+
+aveTabPaths = cbind(meanTabOutPath, medTabOutPath)
+
+paste0(tabOutFdir, '/run_averages/m')
+
+
+# read in each mean and median tab and combine by taking average, weighted by
+# number of segments in each:
+
+for (h in 1:ncol(aveTabPaths)){
+  for (i in 1:nrow(aveTabPaths)){
+    if (i==1){ 
+      mTab = read.csv(aveTabPaths[i,h], header=T)
+      
+      # TEMP TEMP TEMP
+      mTab$TOT_LENGTH_KM = 1e4
+      # TEMP TEMP TEMP
+      
+    }else{ 
+      inTab = read.csv(aveTabPaths[i,h], header=T) 
+      
+      # TEMP TEMP TEMP
+      inTab$TOT_LENGTH_KM = 1e6
+      # TEMP TEMP TEMP
+      
+      totLength = mTab$TOT_LENGTH_KM
+      weights = c(mTab$TOT_LENGTH_KM[1], inTab$TOT_LENGTH_KM[1])/(mTab$TOT_LENGTH_KM[1]+inTab$TOT_LENGTH_KM[1])
+      mTab = Reduce(`+`, Map(`*`, list(mTab, inTab), weights))
+      mTab$TOT_LENGTH_KM = totLength+inTab$TOT_LENGTH_KM
+      
+    }
+  }
+  
+  # write out global column-averaged table:
+  globAveTabPath = sub('af_', '_global_', aveTabPaths[1,h])
+  write.csv(mTab, globAveTabPath, row.names=T)
+  
+  
+  # plot simulation convergence:
+  plot(c(1,nRun), c(1, -1), type="n",
+       xlab="Simulation Runs",
+       ylab="Cumulative Averages",
+       main="Simulation convergence")
+  segments(1, 0, nRun, 0)
+  colNames = c("MC_WIDTH", "MC_DEPTH", "MC_LENGTH", "MC_SLOPE", "MC_ZSLOPE", "MC_N")
+  colNames = c("CELER_MPS", "UPSTR_TIME_DAY", "CITY_UPSTR_TIME_DAY", "DAM_UPSTR_TIME_DAY")
+  for (j in 1:length(colNames)){
+    colInd = grep(colNames[j], names(mTab))[1]
+    y = mTab[,colInd]
+    
+    cumAve = cumsum(y)/1:nRun
+    #normCumAve = (cumAve-mean(y))/max(abs(cumAve-mean(y)))
+    #lines(1:nRun, normCumAve, col=j)
+    par(new=T)
+    plot(1:nRun, cumAve, type='l', col=j)
+  }
+}
+  
+
+
+
+
+
+
+
+
+
 # read in and append each regional mean shapefile DBF:
-for (i in c(3:4)){
+for (i in c(1:7)){
   tab = foreign::read.dbf(rivOutFpaths[i])
   #tab = foreign::read.dbf(obsOutFpaths[i])
   ## TEMP TEMP 
@@ -1396,7 +1424,7 @@ for (j in 1:length(tabOrder)){
 
 
 # read in and append each continent:
-for (i in c(3:4)){
+for (i in c(1:7)){
   tab = foreign::read.dbf(rivOutFpaths[i])
   #tab = foreign::read.dbf(obsOutFpaths[i])
   ## TEMP TEMP 
@@ -1455,7 +1483,9 @@ print(paste0(round(quantile(x, .5)), "+",
 
 # FIXME: multiply length by N overpasses:
 keep = notDesert & Sof60 & wide
+
 x = gTab$UPSTR_TIME[keep]
+x = rep(x, gTab$LENGTH_KM[keep])
 print(paste0(round(quantile(x, .5)), "+",
        round(quantile(x, .75)-quantile(x, .5)), "-",
        round(quantile(x, .5)-quantile(x, .25))))
