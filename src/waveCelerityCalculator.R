@@ -185,32 +185,6 @@ celerityModel_mann_rect <- function(tab, MC_WIDTH, MC_DEPTH, MC_SLOPE, MC_N, B=5
   
   return(tab)
 }
-celerityModel_mann_tri <- function(tab, B){
-  # flow wave celerity model:
-  # segment length (m): --> hydrosheds
-  L = tab$LENGTH_KM*1e3 * 1.3 # convert to meters and sinuosity correction
-  # Manning's roughness coefficient (s/m^0.33):
-  n = 0.035
-  # bankful width (m): --> Andreadis et al
-  w = tab$WIDTH
-  # bankful depth (m): --> Andreadis et al
-  h = tab$DEPTH
-  # river slope (m/m): --> hydrosheds
-  S = tab$SLOPE / 1.3 # sinuosity correction
-  # hydraulic radius
-  R = ((w/(2*h))*h^2)/(2*h*(1+(w/(2*h))^2))^0.5 # triangular cross section
-  # manning's equation for flow velocity (m/s):
-  v = n^(-1) * R^(2/3) * S^(1/2)
-  # Wave celerity equation from Lighthill and Whitham (1955):
-  celerity = v * B 
-  # wave propagation time (days):
-  propT = L / (celerity*86400) # convert from s to days
-  # add information to tab:
-  tab$CELER_MPS = celerity # (m/s)
-  tab$PROPTIME_DAY = propT # (days)
-  
-  return(tab)
-}
 nextDnStrmPOIlength <- function(tab, cTab, mouthInd, POIbool, outField){
   outFieldInd = which(names(tab)==outField)
   mouthInd = mouthInd[!POIbool[mouthInd]]
@@ -307,7 +281,7 @@ cumRivTime <- function(tab, cTab){
   #print(proc.time() - ptm)
   return(tab)
 }
-tabulator <- function(tab, tabdList, varList, h, i, binInt, keep, 
+tabulator <- function(tab, tabdList, varList, h, i, binInt, maxBin, keep, 
                       tabOutFdir, rivEndPtTabNames, SWOT){
   # fill in tabulation tables with statistical distributions 
   # used to generate Fig. S3
@@ -321,12 +295,11 @@ tabulator <- function(tab, tabdList, varList, h, i, binInt, keep,
   
   # fill in each distrib. table with histogram counts:
   for (j in 1:length(varList)){
-    breaks = seq(0, ncol(tabdList[[j]])*binInt, binInt)
+    breaks = seq(0, maxBin+binInt, binInt)
     keep = keep & varList[[j]]<=max(breaks)
     x = varList[[j]][keep]
     x = rep(x, round(weight[keep]), each=T)
     tabdList[[j]][h,] = hist(x, breaks, plot=F)$counts
-    tabdList[[j]] = cbind(run=1:nrow(tabdList[[j]]), tabdList[[j]])
   }
   
   # on last simulation run, write out distribution table(s) to CSV(s):
@@ -335,9 +308,13 @@ tabulator <- function(tab, tabdList, varList, h, i, binInt, keep,
     outTabList = paste0(tabOutFdir, '/distributions/', rivEndPtTabNames[i], '/', tabdListNames, ".csv")
     print(paste("writing out distribution tables:", outTabList))
     for (j in 1:length(tabdList)){
+      tabdList[[j]] = cbind(run=1:nrow(tabdList[[j]]), tabdList[[j]])
       write.csv(tabdList[[j]], outTabList[j], row.names=F)
     }
   }
+  
+  return(tabdList)
+  
 }
 dnStrGaugeCrawler <- function(tab, cTab){
   # for each gauge, find the downstream gauge and add that index to a table. 
@@ -369,7 +346,7 @@ dnStrGaugeCrawler <- function(tab, cTab){
   
   return(segIDtab)
   
-  }
+}
 lagRangeCalc = function(minCel, maxCel, dnStrDist){
   # km to m, and sec to days conversion:
   lagRange = ceiling(cbind(dnStrDist/maxCel, dnStrDist/minCel)*kmpday2mpsConv) 
@@ -568,9 +545,12 @@ cfs2mfsConv = 0.028316847
 kmpday2mpsConv = 0.01157407
 # threshold slope (unncessary if using monte carlo simulation):
 zeroSlope = 1e-5
-# maximum days to tabulated. Sets number of columns recorded in output tabs:
-maxCel = 200
-maxTT = 200
+# tabulation interval and maximum for output tabs and Fig S3:
+celBinInt = 0.2
+TTbinInt = 1
+maxCel = 20
+maxTT = 100
+
 
 # get list of input file paths:
 rivEndPtTabFnames = list.files(rivEndPtTabFdir, 'dbf', recursive=T)
@@ -596,13 +576,14 @@ celTabOutFpaths = paste0(rivOutFdir, '/', rivEndPtTabNames, 'riv_rangeGT05.csv')
 gFnames = list.files(gaugeRecordFdir)
 gNames = as.numeric(sub('.csv', '', gFnames))
 gFpaths = paste0(gaugeRecordFdir, '/', gFnames)
+
 # outpaths for column mean and meadian tabs:
 meanTabOutPath = paste0(tabOutFdir, '/run_averages/', rivEndPtTabNames, '_runMeans.csv')
 medTabOutPath = paste0(tabOutFdir, '/run_averages/', rivEndPtTabNames, '_runMedians.csv')
 # create directories if they don't exist:
-dirCreater(dirPath = c(cityDamGaugeFdir, obsOutFdir, rivOutFdir,  figOutFdir, 
-                       paste0(tabOutFdir, '/distributions/', rivEndPtTabNames, '/')),
-           paste0(tabOutFdir, '/run_averages/'))
+dirCreater(dirPath = c(cityDamGaugeFdir, obsOutFdir, rivOutFdir, 
+           paste0(tabOutFdir, '/distributions/', rivEndPtTabNames, '/'),
+           paste0(tabOutFdir, '/run_averages/'), paste0(figOutFdir, '/validation/')))
 
 ################################################################################
 # POI JOIN TO RIVER NETWORK
@@ -720,7 +701,7 @@ ptm = proc.time()
 nRun = 3
 
 # For each continent, calculate flow wave celerity and travel time:
-for (i in 4:4){ # 1:length(cityDamGaugeFpaths)){ #
+for (i in 1:7){ # 1:length(cityDamGaugeFpaths)){ #
   
   print(paste("Begin simulations in region:", rivEndPtTabNames[i]))
   
@@ -817,6 +798,8 @@ for (i in 4:4){ # 1:length(cityDamGaugeFpaths)){ #
     # entire river network:
     tab = cumRivTime(tab, cTab)
   
+    # WEIGHTED AVERAGED SHAPEFILE DBF:
+    
     # add tab data to polyline shapefile data:
     # replace previously modified file with new copy:
     if (h == 1){
@@ -831,7 +814,6 @@ for (i in 4:4){ # 1:length(cityDamGaugeFpaths)){ #
     # reorder data to polyline vectors:
     tab = tab[m, ]
     
-    # WEIGHTED AVERAGED SHAPEFILE DBF:
     # take the mean value of all simulations for each segment in the 
     # global flowline network:
     if (h == 1){
@@ -855,12 +837,11 @@ for (i in 4:4){ # 1:length(cityDamGaugeFpaths)){ #
       medTab = cbind(run=1:nRun, medTab)
     }
     
-    
-    
     # TABULATED CELERITY AND TRAVEL TIME TABLES:
     # for each simulation tabulate the TT histograms seen in Fig. S3.
     # additionally, tabulate the distribution of celerity:
-    binInt=1
+    
+    # create data filters:
     wide = tab$MC_WIDTH > 100
     notDesert = tab$GLCC != 8
     Sof60 = !(tab$hBASIN %in% as.numeric(basin2rm))
@@ -869,33 +850,41 @@ for (i in 4:4){ # 1:length(cityDamGaugeFpaths)){ #
     if (h == 1){
       # celerity tables:
       tabdCel = tabdCel_swot = 
-        tableMaker(paste0(seq(1, maxCel, by=binInt), "_mps"), nRun, 0)
+        tableMaker(paste0(seq(0, maxCel, by=celBinInt), "_mps"), nRun, 0)
+      tabdCelList = list(tabdCel=tabdCel)
+      tabdCel_swotList = list(tabdCel_swot=tabdCel_swot)
       # travel time tables
       tabdTT_b = tabdTT_c = tabdTT_d = 
         tabdTT_b_swot = tabdTT_c_swot = tabdTT_d_swot = 
-        tableMaker(paste0("day_", seq(1, maxTT, by=binInt)), nRun, 0)
+        tableMaker(paste0("day_", seq(0, maxTT, by=TTbinInt)), nRun, 0)
+      tabdTTList = list(tabdTT_b=tabdTT_b, tabdTT_c=tabdTT_c, tabdTT_d=tabdTT_d)
+      tabdTT_swotList = list(tabdTT_b_swot=tabdTT_b_swot, tabdTT_c_swot=tabdTT_c_swot, 
+                             tabdTT_d_swot=tabdTT_d_swot)
     }
     
     # fill in and write out tabulation tables with statistical distributions 
     # used to generate Table 1 and Fig. S3:
     # celerities of all rivers:
-    tabulator(tab, tabdList=list(tabdCel=tabdCel), varList=list(tab$CELER_MPS), 
-              h, i, binInt, keep=notDesert & Sof60, tabOutFdir, rivEndPtTabNames, SWOT=F)
+    
+    tabdCelList = tabulator(tab, tabdList=tabdCelList, varList=list(tab$CELER_MPS), 
+              h, i, binInt=celBinInt, maxBin=maxCel, keep=notDesert & Sof60, 
+              tabOutFdir, rivEndPtTabNames, SWOT=F)
     # celerities of SWOT rivers only:
-    tabulator(tab, tabdList=list(tabdCel_swot=tabdCel_swot), varList=list(tab$CELER_MPS), 
-              h, i, binInt, keep=notDesert & Sof60, tabOutFdir, rivEndPtTabNames, SWOT=T)
+    tabdCel_swotList = tabulator(tab, tabdList=tabdCel_swotList, varList=list(tab$CELER_MPS), 
+              h, i, binInt=celBinInt, maxBin=maxCel, keep=notDesert & Sof60 & wide, 
+              tabOutFdir, rivEndPtTabNames, SWOT=T)
     # travel times of all rivers:
-    tabulator(tab, 
-              tabdList=list(tabdTT_b=tabdTT_b, tabdTT_c=tabdTT_c, tabdTT_d=tabdTT_d), 
+    tabdTTList = tabulator(tab, tabdList=tabdTTList, 
               varList=list(tab$UPSTR_TIME_DAY, tab$CITY_UPSTR_TIME_DAY, tab$DAM_UPSTR_TIME_DAY), 
-              h, i, binInt, keep=notDesert & Sof60, tabOutFdir, rivEndPtTabNames, SWOT=F)
+              h, i, binInt=TTbinInt, maxBin=maxTT, keep=notDesert & Sof60, 
+              tabOutFdir, rivEndPtTabNames, SWOT=F)
     # travel times of SWOT rivers only:
-    tabulator(tab, 
-              tabdList=list(tabdTT_b_swot=tabdTT_b_swot, tabdTT_c_swot=tabdTT_c_swot, 
-                            tabdTT_d_swot=tabdTT_d_swot), 
+    tabdTT_swotList = tabulator(tab, tabdList=tabdTT_swotList, 
               varList=list(tab$UPSTR_TIME_DAY, tab$CITY_UPSTR_TIME_DAY, tab$DAM_UPSTR_TIME_DAY), 
-              h, i, binInt, keep=notDesert & Sof60, tabOutFdir, rivEndPtTabNames, SWOT=T)
+              h, i, binInt=TTbinInt, maxBin=maxTT, keep=notDesert & Sof60 & wide, 
+              tabOutFdir, rivEndPtTabNames, SWOT=T)
   
+    print(paste(h, '-', round(medTab$CELER_MPS[h], 3), 'm/s'))
   } # end sensitivity loop
 
   # write out mean shapefile dbf:
@@ -905,23 +894,21 @@ for (i in 4:4){ # 1:length(cityDamGaugeFpaths)){ #
   
   # write out mean and median column tabs:
   print(paste("writing out column averaged table:", meanTabOutPath[i]))
-  write.csv(as.data.frame(t(meanTab)), meanTabOutPath[i], row.names=F)
-  write.csv(as.data.frame(t(medTab)), medTabOutPath[i], row.names=F)
+  write.csv(meanTab, meanTabOutPath[i], row.names=F)
+  write.csv(medTab, medTabOutPath[i], row.names=F)
 
 } # end region loop
 
 print(proc.time() - ptm)
 system("say travel time calculation done run!")
 
-
-# check to make sure all three types of tables were written out correctly. 
-
-
-
+# TEMP:
+################################################################################
+# TEMP TEMP TEMP
 ## relationship between celerity and travel time is not linear, therefore it we must run
 ## the monte carlo simulation through the entire cumulative upstream time:
-x = read.csv(meanTabOut)
-x = read.csv(medTabOut)
+x = read.csv(meanTabOutPath[i])
+x = read.csv(meanTabOutPath[i])
 
 run = 1:nrow(x)
 
@@ -958,8 +945,8 @@ MC_med_TTb_quartiles = quantile(x$UPSTR_TIME_DAY, seq(0, 1, 0.25))
 # 0%      25%      50%      75%     100% 
 # 1.721756 1.766040 1.788588 1.811314 1.883037 
 
-
-
+#^^ TEMP TEMP TEMP
+################################################################################
 
 
 
@@ -971,12 +958,12 @@ MC_med_TTb_quartiles = quantile(x$UPSTR_TIME_DAY, seq(0, 1, 0.25))
 ################################################################################
 
 # set up PDF device:
-pdfOut = "/Users/geoallen/Documents/research/2017_06_16_waveSpeed/outputData/plots/crossCorrelations2.pdf"
+pdfOut = paste0(figOutFdir, '/validation/crossCorrelations.pdf')
 pdf(pdfOut, width = 7, height=5)
 
 # set the minimum days of overlap between the two gauge records for
 # them to be considered in the lag correlation analysis:
-minOvrlp = 5*365
+minOvrlp = 5*365 # 5 years
 
 ptm = proc.time()
 # run through each region with gauges (na & ca) and conduct validation:
@@ -1018,7 +1005,7 @@ for (i in c(4,6)){
   gCol = grep('GAUGE_Site|GAUGE_STAI', names(tab))
   gTab = matrix(tab[segIDtab, gCol], nrow=nrow(segIDtab))
   areaTab = matrix(tab$AREA[segIDtab], nrow=nrow(segIDtab))
-  distTab =  matrix(tab$LENGTH_KM[segIDtab], nrow=nrow(segIDtab))
+  distTab =  matrix(tab$MC_LENGTH[segIDtab], nrow=nrow(segIDtab))
   cumDistTab = t(apply(distTab, 1, cumsum))
   
   # match up gauges linked to river network to file list. First, 
@@ -1138,14 +1125,14 @@ for (i in c(4,6)){
       # calculate correlation coefficient and celerity:
       R = corVec[lag_day]
       Rrange = corRange[2]-corRange[1]
-      cel_mps = (gDnStrmDist[k] / lag_day)*kmpday2mpsConv *1.3 # convert from m/s to days and km to m
+      cel_mps = (gDnStrmDist[k] / lag_day)*kmpday2mpsConv # convert from m/s to days and km to m
       gDist_km = gDnStrmDist[k]
       gAreaDif_per = 100*(gDnStrmArea[k]-areaTab[gRow,1])/gDnStrmArea[k]
       celTabMat = cbind(ID, R, cel_mps, gDist_km, gAreaDif_per, lag_day, Qoverlap, Rrange)
       celTab = rbind(celTab, celTabMat)
       
       # fill in tabs:
-      modelTT = sum(tab$LENGTH_KM[ID]/(tab$CELER_MPS[ID]))*kmpday2mpsConv *1.3# convert from m/s to days and km to m
+      modelTT = sum(tab$MC_LENGTH[ID]/(tab$CELER_MPS[ID]))*kmpday2mpsConv # convert from m/s to days and km to m
       modelTTtab[gRow, gDnStrmInd][gFmatch_dnStrmInd[k]] = modelTT
       lagTimeTab[gRow, gDnStrmInd][gFmatch_dnStrmInd[k]] = lag_day
       corTab[gRow, gDnStrmInd][gFmatch_dnStrmInd[k]] = corVec[lag_day]
@@ -1276,10 +1263,140 @@ print(paste("standard error:", round(se(error), 1)))
 # DISTRIBUTION PLOTS - TABLE 1, FIGURE S3
 ################################################################################
 
+# read in and append each regional mean shapefile DBF:
+for (i in c(3:4)){
+  tab = foreign::read.dbf(rivOutFpaths[i])
+  #tab = foreign::read.dbf(obsOutFpaths[i])
+  ## TEMP TEMP 
+  # remove observational columns and gauge columns:
+  obsCols = grep("OBS", names(tab))
+  if (length(obsCols)>0){
+    tab = tab[,-obsCols]
+    names(tab)[names(tab) != names(gTab)] =  names(gTab)[names(tab) != names(gTab)]
+  }
+  obsCols = grep("GAUGE", names(tab))
+  if (length(obsCols)>0){
+    tab = tab[,-obsCols]
+    #names(tab)[names(tab) != names(gTab)] =  names(gTab)[names(tab) != names(gTab)]
+  }
+  ## TEMP TEMP ^^^
+  if (i == 1){ 
+    gTab = tab 
+  }else{ 
+    gTab = rbind(gTab, tab) 
+  }
+  print(paste(i, rivEndPtTabNames[i]))
+}
+
+
+
+
+# thresholds and variables for plotting:
+uprQuant = 0.99
+wide = gTab$WIDTH > 100
+realS = gTab$SLOPE != zeroSlope
+notDesert = gTab$GLCC != 8
+Sof60 = !(gTab$hBASIN %in% as.numeric(basin2rm))
+keep = notDesert & Sof60 & realS & wide
+breaks = seq(0, 50, 1)
+latencies = c(1,2,5,10,45)
+
+
+
+
+
 # analyze the global distribution of flow wave travel time:
+# concatenate each region distrib tab:
+tabOrder = c('tabdCel', 'tabdTT_b', 'tabdTT_c', 'tabdTT_d',
+             'tabdCel_swot', 'tabdTT_b_swot', 'tabdTT_c_swot', 'tabdTT_d_swot')
+
+# travel times:
+for (j in 1:length(tabOrder)){
+  # concatenate each xyz
+  for (i in 3:4){
+    distribOutPath = paste0(tabOutFdir, '/distributions/', rivEndPtTabNames[i], '/', tabOrder[j], '.csv')
+    
+    if (i == 3){ 
+      dTab = read.csv(distribOutPath, header=T)
+    }else{
+      dTab = rbind(dTab, read.csv(distribOutPath, header=T))
+    }
+  }
+  
+
+  # set plotting x limit:
+  TTflag = grep('TT', tabOrder[j], ignore.case=T)
+  celFlag = grep('cel', tabOrder[j], ignore.case=T)
+  if (length(TTflag)>0){ xlim = c(0, 50) }
+  if (length(celFlag)>0){ xlim = c(0, 10) }
+  
+  # get histogram breaks:
+  splitNames = strsplit(names(dTab), '_')
+  breaks = as.numeric(sapply(splitNames[-1], '[[', 2))
+  plotLimInd = which(breaks<=xlim[2])
+  nPlim = length(plotLimInd)
+  breaks = breaks[plotLimInd]
+  
+  lB = breaks[-length(breaks)]
+  rB = breaks[-1]
+  mid = colMeans(rbind(lB, rB))
+  mn = colMeans(dTab[-1])[plotLimInd[-nPlim]]
+  std = apply(dTab[-1], 2, sd)[plotLimInd[-nPlim]]
+  ylim = range(0, mn+std)
+  
+  # plot histogram:
+  plot(xlim, ylim, type='n')
+  polygon(x=rbind(lB, rB, rB, lB, NA), 
+          y=rbind(mn, mn, 0, 0, NA),
+          border=NA, col=rgb(.7, .7, .7))
+  
+  # add uncertainty bars:
+  options(warn=-1)
+  arrows(mid, mn, mid, mn+std, length=0.03, angle=90, lwd=0.5)
+  arrows(mid, mn, mid, mn-std, length=0.03, angle=90, lwd=0.5)
+  options(warn=0)
+  
+  # add CDF:
+  cdf = ecdf(x)
+  cdfXseq = seq(xlim[1], xlim[2], length.out=100)
+  par(new=T); plot(cdfXseq, 
+                   cdf(cdfXseq),
+                   xlim=xlim, 
+                   yaxt = "n", 
+                   ylab = NA,
+                   xlab = NA,
+                   type='l',
+                   lwd=2,
+                   col=4)
+  axis(4,
+       las=1,
+       col=4,
+       col.ticks=4,
+       col.axis=4)
+  corns = par("usr"); par(xpd=T)
+  text(x=corns[2]+(corns[2]-corns[1])/4, y=mean(corns[3:4]), 
+       'Probability', 
+       srt=270,
+       col=4)
+  text(corns[1]-(corns[2]-corns[1])/16, corns[4]+0.05, 
+       letters[j], 
+       cex=1.5,
+       font=2)
+  
+  # add median point to plot:
+  med = median(x)
+  points(med, 0.5, col=4)
+  text(med, 0.5, paste0("(",round(med,1), ", 0.5)"), pos=4, col=4)
+  
+  
+  
+}
+
+
+
 
 # read in and append each continent:
-for (i in c(1:7)){
+for (i in c(3:4)){
   tab = foreign::read.dbf(rivOutFpaths[i])
   #tab = foreign::read.dbf(obsOutFpaths[i])
   ## TEMP TEMP 
