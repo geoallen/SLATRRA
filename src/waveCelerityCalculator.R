@@ -548,11 +548,11 @@ kmpday2mpsConv = 0.01157407
 zeroSlope = 1e-5
 # tabulation interval and maximum for output tabs and Fig S3:
 celBinInt = 0.2
-TTbinInt = 1
-maxCel = 20
+TTbinInt =1
+maxCel = 50
 maxTT = 100
 # number of simulation runs:
-nRun = 4
+nRun = 120
 
 # get list of input file paths:
 rivEndPtTabFnames = list.files(rivEndPtTabFdir, 'dbf', recursive=T)
@@ -693,7 +693,7 @@ dirCreater(dirPath = c(cityDamGaugeFdir, obsOutFdir, rivOutFdir,
 ptm = proc.time()
 
 # For each continent, calculate flow wave celerity and travel time:
-for (i in 1:length(cityDamGaugeFpaths)){ # 4:4){ #
+for (i in 1:length(cityDamGaugeFpaths)){ # 
   
   print(paste("Begin simulations in region:", rivEndPtTabNames[i]))
   
@@ -741,15 +741,21 @@ for (i in 1:length(cityDamGaugeFpaths)){ # 4:4){ #
     N = nrow(tab)
     MC_LENCOR = runif(n=1, min=1.0, max=1.5) # simulate uncertainty of river length (low res. DEM short circuits river meanders)
     MC_LENGTH = EPtab$LENGTH_KM[evenInd]*MC_LENCOR
-    MC_UPSTR_ELEV = runif(n=N, min=EPtab$ELEV_M[oddInd]-3.5, max=EPtab$ELEV_M[oddInd]+3.5) # include 10 m of uncertainty to elevation
-    MC_DNSTR_ELEV = runif(n=N, min=EPtab$ELEV_M[evenInd]-3.5, max=EPtab$ELEV_M[evenInd]+3.5) # include 10 m of uncertainty to elevation
+    #MC_UPSTR_ELEV = runif(n=N, min=EPtab$ELEV_M[oddInd]-3.5, max=EPtab$ELEV_M[oddInd]+3.5) # include 10 m of uncertainty to elevation
+    #MC_DNSTR_ELEV = runif(n=N, min=EPtab$ELEV_M[evenInd]-3.5, max=EPtab$ELEV_M[evenInd]+3.5) # include 10 m of uncertainty to elevation
     MC_ZSLOPE = runif(n=1, min=1e-5, max=1e-4)
     
-    # calculate gradient and remove duplicates:
-    MC_SLOPE = (MC_UPSTR_ELEV - MC_DNSTR_ELEV)/(1e3*MC_LENGTH) # convert length from km to m
+    # calculate gradient:
+    slope = (EPtab$ELEV_M[oddInd]-EPtab$ELEV_M[evenInd])/(1e3*MC_LENGTH) # convert length from km to m
+    #MC_SLOPE = (MC_UPSTR_ELEV - MC_DNSTR_ELEV)/(1e3*MC_LENGTH) # convert length from km to m
+    
+    # check out table 3 -- for minimum slope, look at charlotte's paper (min slope = 1e-5), max slope=1e-2
+    MC_smult = runif(n=N, min=0.9, max=1.1) # from http://onlinelibrary.wiley.com/doi/10.1002/joc.2028/full 
+    MC_d = rnorm(n=N, mean=1, sd=0.1)
+    MC_SLOPE = (slope*MC_smult)^(MC_d)
     
     # set zero or negative slopes to a minimum threshold:
-    MC_SLOPE[MC_SLOPE <= 0] = MC_ZSLOPE
+    MC_SLOPE[MC_SLOPE <= 0 | is.na(MC_SLOPE)] = MC_ZSLOPE
     
     # add slope to polyline attribute table:
     m = match(tab$ARCID, EPtab$ARCID[oddInd])
@@ -923,9 +929,6 @@ for (i in 1:length(cityDamGaugeFpaths)){ # 4:4){ #
 
 print(proc.time() - ptm)
 system("say travel time calculation done run!")
-
-# 20 runs took 4.8 hrs
-# 200 runs took 18 hrs
 
 
 
@@ -1272,168 +1275,6 @@ for (i in c(1:7)){
 
 
 
-## ORIG DISTRIB PLOTS ####
-# thresholds and variables for plotting:
-uprQuant = 0.99
-wide = gTab$WIDTH > 100
-notDesert = gTab$GLCC != 8
-Sof60 = !(gTab$hBASIN %in% as.numeric(basin2rm))
-keep = notDesert & Sof60 & wide
-breaks = seq(0, 50, 1)
-latencies = c(1,2,5,10,45)
-
-# values reported in the text:
-# ALL RIVERS:
-keep = notDesert & Sof60
-weight = gTab$LENGTH_KM[keep]
-
-# celerity:
-x = gTab$CELER_MPS[keep]
-x = rep(x, round(weight), each=T)
-print(paste0(round(quantile(x, .5),1), "+",
-             round(quantile(x, .75)-quantile(x, .5),1), "-",
-             round(quantile(x, .5)-quantile(x, .25),1)))
-# travel time:
-x = gTab$UPSTR_TIME[keep]
-x = rep(x, round(weight), each=T)
-print(paste0(round(quantile(x, .5)), "+",
-             round(quantile(x, .75)-quantile(x, .5)), "-",
-             round(quantile(x, .5)-quantile(x, .25))))
-x = gTab$CITY_UPSTR[gTab$CITY_UPSTR>0 & keep]
-x = rep(x, round(weight), each=T)
-print(paste0(round(quantile(x, .5)), "+",
-             round(quantile(x, .75)-quantile(x, .5)), "-",
-             round(quantile(x, .5)-quantile(x, .25))))
-x = gTab$DAM_UPSTR_[gTab$DAM_UPSTR_>0 & keep]
-x = rep(x, round(weight), each=T)
-print(paste0(round(quantile(x, .5)), "+",
-             round(quantile(x, .75)-quantile(x, .5)), "-",
-             round(quantile(x, .5)-quantile(x, .25))))
-# swot-observable rivers:
-
-
-keep = notDesert & Sof60 & wide
-weight = round(gTab$LENGTH_KM*gTab$SWOT_TRAC_)
-
-x = gTab$UPSTR_TIME[keep]
-x = rep(x, weight[keep], each=T)
-print(paste0(round(quantile(x, .5)), "+",
-             round(quantile(x, .75)-quantile(x, .5)), "-",
-             round(quantile(x, .5)-quantile(x, .25))))
-x = gTab$CITY_UPSTR[gTab$CITY_UPSTR>0 & keep]
-x = rep(x, weight[gTab$CITY_UPSTR>0 & keep], each=T)
-print(paste0(round(quantile(x, .5)), "+",
-             round(quantile(x, .75)-quantile(x, .5)), "-",
-             round(quantile(x, .5)-quantile(x, .25))))
-x = gTab$DAM_UPSTR_[gTab$DAM_UPSTR_>0 & keep]
-x = rep(x, weight[gTab$DAM_UPSTR_>0 & keep], each=T)
-print(paste0(round(quantile(x, .5)), "+",
-             round(quantile(x, .75)-quantile(x, .5)), "-",
-             round(quantile(x, .5)-quantile(x, .25))))
-
-
-
-## plots:
-## ALL RIVERS
-pdfOut = paste0(figOutFdir, "distributions_woSWOTwSWOTRivers_minSlope", zeroSlope, ".pdf")
-
-pdf(pdfOut, width=7, height=9)
-layout(matrix(1:6, nrow=3, byrow=F))
-
-# plot distributions of travel time over the entire dataset:
-keep = notDesert & Sof60
-latencyTab = as.data.frame(latencies)
-names(latencyTab) = "Latency (days)"
-
-# a. BASIN TRAVEL TIME:
-# j = j+1
-latencyTab = distPlot(x=gTab$UPSTR_TIME[keep], weight=gTab$LENGTH_KM[keep], 
-                      uprQuant=uprQuant, breaks=breaks, j=j,
-                      xLab="Travel Time to Basin Outlet(Days)",
-                      yLab="Global River Length (km)",
-                      latencyTab = latencyTab, latencies=latencies)
-names(latencyTab)[j] = "Observable global river network length"
-
-# b. CITY TRAVEL TIME:
-j = j+1
-nonZeroTravelTime = gTab$CITY_UPSTR>0
-latencyTab = distPlot(x=gTab$CITY_UPSTR[keep & nonZeroTravelTime], 
-                      weight=gTab$LENGTH_KM[keep & nonZeroTravelTime], 
-                      uprQuant=uprQuant, breaks=breaks, j,
-                      xLab="Travel Time to Next Downstream City (Days)",
-                      yLab="Global River Length (km)",
-                      latencyTab = latencyTab, latencies=latencies)
-names(latencyTab)[j] = "Next downstream city"
-
-# c. DAM TRAVEL TIME:
-j = j+1
-nonZeroTravelTime = gTab$DAM_UPSTR_>0
-latencyTab = distPlot(x=gTab$DAM_UPSTR_[keep & nonZeroTravelTime], 
-                      weight=gTab$LENGTH_KM[keep & nonZeroTravelTime], 
-                      uprQuant=uprQuant, breaks=breaks, j,
-                      xLab="Travel Time to Next Downstream Dam (Days)",
-                      yLab="Global River Length (km)",
-                      latencyTab = latencyTab, latencies=latencies)
-names(latencyTab)[j] = "Next downstream dam"
-
-# write out first part of table 1 for all rivers:
-write.csv(latencyTab, sub('.png', '.csv', pngOut), row.names=F)
-names(latencyTab) = c("latency", "basins", "cities", "dams"); print(latencyTab)
-
-
-####### SWOT-OBSERVABLE RIVERS
-
-# plot the SWOT observable rivers:
-keep = notDesert & Sof60 & wide
-latencyTab = as.data.frame(latencies)
-names(latencyTab) = "Latency (days)"
-
-# d. BASIN TRAVEL TIME:
-j = j+1
-latencyTab = distPlot(x=gTab$UPSTR_TIME[keep], 
-                      weight=gTab$LENGTH_KM[keep]*gTab$SWOT_TRAC_[keep], 
-                      uprQuant=uprQuant, breaks=breaks, j,
-                      xLab="Travel Time to Basin Outlet(Days)",
-                      yLab="Global River Length (km)",
-                      latencyTab = latencyTab, latencies=latencies)
-names(latencyTab)[j] = "Observable global river network length"
-
-# e. CITY TRAVEL TIME:
-j = j+1
-nonZeroTravelTime = gTab$CITY_UPSTR>0
-latencyTab = distPlot(x=gTab$CITY_UPSTR[keep & nonZeroTravelTime], 
-                      weight=gTab$LENGTH_KM[keep & nonZeroTravelTime]*gTab$SWOT_TRAC_[keep & nonZeroTravelTime], 
-                      uprQuant=uprQuant, breaks=breaks, j,
-                      xLab="Travel Time to Next Downstream City (Days)",
-                      yLab="Global River Length (km)",
-                      latencyTab = latencyTab, latencies=latencies)
-names(latencyTab)[j] = "Next downstream city"
-
-# f. DAM TRAVEL TIME:
-j = j+1
-nonZeroTravelTime = gTab$DAM_UPSTR_>0
-latencyTab = distPlot(x=gTab$DAM_UPSTR_[keep & nonZeroTravelTime], 
-                      weight=gTab$LENGTH_KM[keep & nonZeroTravelTime]*gTab$SWOT_TRAC_[keep & nonZeroTravelTime],
-                      uprQuant=uprQuant, breaks=breaks, j,
-                      xLab="Travel Time to Next Downstream Dam (Days)",
-                      yLab="Global River Length (km)",
-                      latencyTab = latencyTab, latencies=latencies)
-names(latencyTab)[j] = "Next downstream dam"
-
-# write out second part of table 1 for swot-observable rivers:
-#write.csv(latencyTab, sub('.pdf', '.csv', pdfOut), row.names=F)
-#names(latencyTab) = c("latency", "basins", "cities", "dams"); print(latencyTab)
-
-dev.off()
-cmd = paste('open', pdfOut)
-system(cmd)
-
-
-
-
-
-
-
 ## DISTRIBUTION GRAPHS WITH UNCERTAINTY: ####
 
 # analyze the global distribution of flow wave travel time:
@@ -1442,6 +1283,8 @@ tabOrder = c('tabdCel', 'tabdTT_b', 'tabdTT_c', 'tabdTT_d',
              'tabdCel_swot', 'tabdTT_b_swot', 'tabdTT_c_swot', 'tabdTT_d_swot')
 paramOrder = c('CELER_MPS', 'UPSTR_TIME', 'CITY_UPSTR', 'DAM_UPSTR_',
                'CELER_MPS', 'UPSTR_TIME', 'CITY_UPSTR', 'DAM_UPSTR_')
+xLabOrder = c("Celerity (m/s)", "Travel Time (days)", "Travel Time (days)", "Travel Time (days)",
+              "Celerity (m/s)", "Travel Time (days)", "Travel Time (days)", "Travel Time (days)")
 keepOrder = c("keep","keep","keep_c","keep_d","keep_swot","keep_swot","keep_c_swot","keep_d_swot")
 swotOrder = c(F,F,F,F,T,T,T,T)
 wide = gTab$MC_WIDTH > 100
@@ -1462,14 +1305,14 @@ names(latTab) = tabOrder
 
 
 pdfOut = paste0(figOutFdir, '/distributions.pdf')
-pdf(pdfOut, width=7, height=12)
+pdf(pdfOut, width=6, height=10.5)
 layout(matrix(1:8, nrow=4, byrow=F))
 par(mar=c(5,4,2,5))
 
 # travel times:
 for (j in 1:length(tabOrder)){
   # sum each region together:
-  for (i in 4:4){
+  for (i in 1:7){
     distribOutPath = paste0(tabOutFdir, '/distributions/', rivEndPtTabNames[i], '/', tabOrder[j], '.csv')
     if (i == 1){ 
       dTab = read.csv(distribOutPath, header=T)
@@ -1489,127 +1332,88 @@ for (j in 1:length(tabOrder)){
   
   # get histogram breaks:
   splitNames = strsplit(names(dTab), '_')
-  breaks = as.numeric(sapply(splitNames, '[[', 2))
-  plotLimInd = which(breaks<=xlim[2])
-  nPlim = length(plotLimInd)
-  breaks = breaks[plotLimInd]
-  lB = c(0, breaks[-length(breaks)])
-  rB = breaks
+  breaks_raw = as.numeric(sapply(splitNames, '[[', 2))
+  plotLimInd = which(breaks_raw<=xlim[2])
+  breaks = breaks_raw[plotLimInd]
+  lB = c(breaks[-length(breaks)])
+  rB = breaks[-1]
   mid = colMeans(rbind(lB, rB))
   
   
-  # # plot mean histogram:
-  # mn = colMeans(dTab[,-1])[plotLimInd[-nPlim]]
-  # std = apply(dTab[,-1], 2, sd)[plotLimInd[-nPlim]]
-  # ylim = range(0, mn+std)
-  # plot(xlim, ylim, type='n')
-  # polygon(x=rbind(lB, rB, rB, lB, NA), 
-  #         y=rbind(mn, mn, 0, 0, NA),
-  #         border=NA, col=rgb(.7, .7, .7))
-  # 
-  # # add sd uncertainty bars:
-  # options(warn=-1)
-  # arrows(mid, mn, mid, mn+std, length=0.03, angle=90, lwd=0.5)
-  # arrows(mid, mn, mid, mn-std, length=0.03, angle=90, lwd=0.5)
-  # options(warn=0)
-  
   # plot median histogram:
-  quarts = apply(dTab, 2, quantile, probs=c(0.25, 0.5, 0.75))[,plotLimInd]
+  quarts = apply(dTab, 2, quantile, probs=c(0.25, 0.5, 0.75))[,plotLimInd[-length(breaks)]]
   ylim = range(c(0, quarts))
   
   plot(xlim, ylim, type='n',
-       main='', #Global distribution of flow celerity
-       xlab='Travel Times (Days)', #
+       main='', 
+       xlab=xLabOrder[j],
        ylab='Global River Length (km)',
        las=1)
   mtext(formatC(oOm, format="g"), adj=0, padj=-1, outer=F, cex=0.7)
+ 
   polygon(x=rbind(lB, rB, rB, lB, NA), 
           y=rbind(quarts[2,], quarts[2,], 0, 0, NA),
-          border=NA, col=rgb(0.7, 0.7, 0.7, 1))
+          bty="n", lwd=0.7, border=NA, col=rgb(0.7, 0.7, 0.7, 1))
   
   # add runs:
-  matlines(mid, t(dTab[,(plotLimInd)]), 
-           axt="n", yaxt ="n", xlab=NA, ylab=NA, 
-           lty=1, lwd=0.3, 
-           col=rgb(1,0,0,1))
+  matlines(c(0,rB), t(dTab[,(plotLimInd)]),
+           axt="n", yaxt ="n", xlab=NA, ylab=NA,
+           bty="n", lty=1, lwd=0.3, col=rgb(1,0,0,0.2))
+  
   # add 1st and 3rd quartile uncertainty bars:
-  zC = quarts[1,]>0 & quarts[2,]>0 & quarts[3,]>0
+  zC = T#quarts[1,]>0 & quarts[2,]>0 & quarts[3,]>0
   arrows(mid[zC], quarts[1,zC], mid[zC], quarts[3,zC], 
          code=3, length=0.018, angle=90, lwd=0.6)
   
-  # add CDF:
+  # add CDFs:
   cumTab = apply(dTab, 1, cumsum)
   maxVec = apply(cumTab, 2, max)
   normCumTab = rbind(0, t(t(cumTab)/maxVec))
-  
   par(new=T); 
   matplot(c(lB, xlim[2]), normCumTab[1:(length(rB)+1),], type='l', 
           xaxt="n", yaxt ="n", xlab=NA, ylab=NA, 
-          lty=1, bty="n", lwd=0.3, col=rgb(0,0,1,1))
+          lty=1, bty="n", lwd=0.3, col=rgb(0,0,1,.4))
   axis(4, las=1, col=4, col.ticks=4, col.axis=4)
-  corns = par("usr"); par(xpd=T)
   text(x=corns[2]+(corns[2]-corns[1])/4, y=mean(corns[3:4]),
-       'Probability',
-       srt=270,
-       col=4)
+       'Probability', srt=270, col=4)
   
+  #cdf = ecdf(x)
+  #cdfXseq = seq(xlim[1], xlim[2], length.out=100)
+  #lines(cdfXseq, cdf(cdfXseq), col=4, lwd=1.4)
   
-  # add median point to plot:
-  # splF = splinefun(rep(1:nrow(normCumTab), nRun), as.vector(normCumTab))
-  # 
-  # cdfXseq = seq(xlim[1], xlim[2], length.out=100)
-  # cdf = splF(cdfXseq)
-  # lines(cdfXseq)
-  # 
-  # cdf = (rowMeans(normCumTab))
-  # splF = splinefun(1:nRun, cdf)
-  # medInd = which.min(abs(cdf-0.5))
-  # medDayColName = row.names(normCumTab)[medInd]
-  # as.numeric(strsplit(medDayColName, '_')[[1]][2])
-  # 
-  # 
-  # medInd = median(apply(abs(normCumTab-0.5), 2, which.min))+1
-  # medDayColName = row.names(normCumTab)[medInd]
-  # med = as.numeric(strsplit(medDayColName, '_')[[1]][2])
+  colInd = grep(paramOrder[j], names(gTab))
+  rowInd = mget(keepOrder[j])[[1]]
+  x = gTab[rowInd, colInd]
+  if (swotOrder[j]){ x = rep(x,  gTab$SWOT_TRAC_[rowInd], each=T) }
+  med = median(x)
+  print(med)
+  points(med, 0.5, col=4)
+  text(med, 0.5, paste0("(",round(med,1), ", 0.5)"), pos=4, col=4)
+   
   
-  
-  
-  # colInd = grep(paramOrder[j], names(gTab))
-  # rowInd = mget(keepOrder[j])[[1]]
-  # x = gTab[rowInd, colInd]
-  # if (swotOrder[j]){ x = rep(x,  gTab$SWOT_TRAC_[rowInd], each=T) }
-  # med = median(x)
-  # points(med, 0.5, col=4)
-  # text(med, 0.5, paste0("(",round(med,1), ", 0.5)"), pos=4, col=4)
-  # 
-  # cdf = ecdf(x)
-  # cdfXseq = seq(xlim[1], xlim[2], length.out=100)
-  # lines(cdfXseq, cdf(cdfXseq), col=2)
-  # 
   
   
   
   # fill in Table 4:
   rowSumTab = rowSums(dTab)
-  dayTab = dTab[,dayVec]
+  revDtab = dTab[,c(ncol(dTab):1)]
+  revCumsum = t(apply(revDtab, 1, cumsum))[,c(ncol(dTab):1)]
+  dayTab = revCumsum[,dayVec+1]
   
-  perTab = 1-dayTab/rowSumTab
+  
+  perTab = dayTab/rowSumTab
   
   obTab = (apply(perTab, 2, quantile, probs=c(0.25, 0.5, 0.75)))*100
-  latTab[,j]  = paste0(obTab[2,], " +", round(obTab[1,]-obTab[2,],1), 
-                 " -", round(obTab[2,]-obTab[3,], 1))
+  latTab[,j]  = paste0(round(obTab[2,],1), " +", round(obTab[3,]-obTab[2,],1), 
+                       " -", round(obTab[2,]-obTab[1,], 1))
 }
+
+write.csv(latTab, paste0(tabOutFdir, '/tab1_latencies.csv'), row.names=F)
+print(latTab)
 
 dev.off()
 cmd = paste('open', pdfOut)
 system(cmd)
-
-
-
-
-
-
-
 
 
 
@@ -1619,16 +1423,16 @@ system(cmd)
 aveTabPaths = cbind(meanTabOutPath, medTabOutPath)
 
 # set up variables and lavels to be plotted:
-inputColNames = c("MC_WIDTH", "MC_DEPTH", "MC_LENGTH", 
+inputColNames = c("MC_WIDTH", "MC_DEPTH", "MC_LENGTH",
                   "MC_SLOPE", "MC_ZSLOPE", "MC_N")
-outputColNames = c("CELER_MPS", "UPSTR_TIME_DAY", 
+outputColNames = c("CELER_MPS", "UPSTR_TIME_DAY",
                    "CITY_UPSTR_TIME_DAY", "DAM_UPSTR_TIME_DAY")
 inputLegNames = c("Width (m)", "Depth (m)", "Segment Length (km)",
-                  "Slope (m/m)", "Slope Thresh. (m/m)", "Manning's N (m/s^1/3)")
+                  "Slope (m/m)", "Slope Thresh. (m/m)", "Manning's n (m/s^1/3)")
 outputLegNames = c("Celerity (m/s)", "Wave to Outlet Travel Time (days)",
                    "Wave to City Travel Time (days)", "Wave to Dam Travel Time (days)")
-colNameList = list(inputColNames=inputColNames, 
-                outputColNames=outputColNames)
+colNameList = list(inputColNames=inputColNames,
+                   outputColNames=outputColNames)
 legNameList = list(inputLegNames=inputLegNames,
                    outputLegNames=outputLegNames)
 stat = c('Mean', "Median")
@@ -1637,10 +1441,12 @@ varType = c("Input", "Output")
 
 
 pdfOut = paste0(figOutFdir, '/simConvergence.pdf')
-pdf(pdfOut, width=12, height=12)
+pdf(pdfOut, width=8, height=7)
 par(mfrow=c(2,1))
-par(mar=c(5,18,4,2))
-#options(scipen=999)
+par(mar=c(2,15,2,2))
+options(scipen=999)
+
+cols = rainbow(length(inputColNames), s=1, v=0.9, start=0.1, end=1)
 
 # read in each mean and median tab and combine by taking average, weighted by
 # number of segments in each:
@@ -1650,13 +1456,13 @@ for (h in 1:ncol(aveTabPaths)){
       mTab = read.csv(aveTabPaths[i,h], header=T)
     }else{
       inTab = read.csv(aveTabPaths[i,h], header=T)
-
+      
       totLength = mTab$TOT_LENGTH_KM
       weights = c(mTab$TOT_LENGTH_KM[1], inTab$TOT_LENGTH_KM[1])/
         (mTab$TOT_LENGTH_KM[1]+inTab$TOT_LENGTH_KM[1])
       mTab = Reduce(`+`, Map(`*`, list(mTab, inTab), weights))
       mTab$TOT_LENGTH_KM = totLength+inTab$TOT_LENGTH_KM
-
+      
     }
   }
   
@@ -1670,16 +1476,16 @@ for (h in 1:ncol(aveTabPaths)){
     colNames = colNameList[[i]]
     legNames = legNameList[[i]]
     plot(c(1,nRun), c(1, -1), type="n",
-         xlab="N Simulation Runs",
-         ylab="",
          main=paste(stat[h], varType[i], "Simulation Convergence"),
+         xlab="N Runs",
+         ylab="", 
          yaxt="n")
-    mtext("Cumulative Average", side=2, 
-          line=length(colNames)*2+2.8)
+    mtext("Cumulative Average", side=2,
+          line=length(colNames)*2.1+1)
     segments(-1, 0, nRun+1, 0, lty=3)
     
     
-
+    
     for (j in 1:length(colNames)){
       colInd = grep(colNames[j], names(mTab))[1]
       y = mTab[,colInd]
@@ -1688,20 +1494,20 @@ for (h in 1:ncol(aveTabPaths)){
       yRange = mY+c(-max(abs(cumAve-mY)), max(abs(cumAve-mY)))
       
       par(new=T)
-      plot(1:nRun, cumAve, type='l', col=j, ylim=yRange,
-           xlab='', ylab='', yaxt="n", xaxt="n")
+      plot(1:nRun, cumAve, type='l', col=cols[j], ylim=yRange,
+           bty="n", xlab='', ylab='', yaxt="n", xaxt="n")
       txt = c(yRange[1], mY, yRange[2])
-      lab = round(txt, 6)
-      axis(2, at=txt, labels=lab, 
-           col=j, col.ticks=j, col.axis=j, 
-           pos=(j - length(colNames))*13-8, cex.axis=1)
+      lab = formatC(signif(txt,digits=3))
+      axis(2, at=txt, labels=lab,
+           col=cols[j], col.ticks=cols[j], col.axis=cols[j],
+           line=(length(colNames)-j)*2.1, cex.axis=1)
     }
     
     # add legend:
-    legend("topright", legend=legNames, 
-           col=1:length(legNames), cex=0.8, xjust=1, lwd = 1)
+    legend("topright", legend=legNames,
+           col=cols, cex=0.7, lwd = 1, box.lwd=NA)
   }
-
+  
 }
 dev.off()
 cmd = paste('open', pdfOut)
