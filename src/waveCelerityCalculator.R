@@ -552,7 +552,7 @@ TTbinInt = 1
 maxCel = 20
 maxTT = 100
 # number of simulation runs:
-nRun = 200
+nRun = 4
 
 # get list of input file paths:
 rivEndPtTabFnames = list.files(rivEndPtTabFdir, 'dbf', recursive=T)
@@ -690,30 +690,19 @@ dirCreater(dirPath = c(cityDamGaugeFdir, obsOutFdir, rivOutFdir,
 #CELERITY & TRAVEL TIME
 ################################################################################
 
-# Sources of uncertainty: 
-# DONE: elevation: gaussian mu=slope, sd=(FIND REF)
-# DONE: zero slopes: uniform 1e-5 to 1e3 (or 1e-2)
-# DONE: river length: uniform: 1-1.5
-# DONE: width: skewed normal (or uniform) 5%, 50%, 95% from Andreadis etal 
-# DONE: depth: gaussian 5%, 50%, 95% from Andreadis etal 
-# DONE: n: gaussian: 5%, 50%, 95% : 0.02, 0.03, 0.04 (or just assume 0.03)
-# DONE: Channel shape -- argue it is a can of worms (add a sentence about how width and depth are so uncertain, beta and shape cancel out)
-
 ptm = proc.time()
 
 # For each continent, calculate flow wave celerity and travel time:
-for (i in 1:length(cityDamGaugeFpaths)){ 
+for (i in 1:length(cityDamGaugeFpaths)){ # 4:4){ #
   
   print(paste("Begin simulations in region:", rivEndPtTabNames[i]))
   
   # for sensitivity analysis, run model several times with varying input parameters:
   for (h in 1:nRun){
     
-    print(paste("Simulation run: ", h, "of", nRun))
-    
     # if first simulation, read in input data:
     if (h==1){
-      print("Loading input data")
+      print("  Loading input data")
       # read in river polyline attribute table:
       tab_raw = foreign::read.dbf(cityDamGaugeFpaths[i]) 
       
@@ -724,9 +713,10 @@ for (i in 1:length(cityDamGaugeFpaths)){
       
       # read in midPtTab:
       midPtTab = foreign::read.dbf(rivMidPtTabFpaths[midPtMatch[i]])
-      
     }
     tab=tab_raw
+    
+    print(paste("  Simulation run: ", h, "of", nRun))
     
     # read in and set up connectivity table:
     j = grep(rivEndPtTabNames[i], rivNetworkConnectFnames)
@@ -749,27 +739,37 @@ for (i in 1:length(cityDamGaugeFpaths)){
     
     # simulate slope uncertainty through monte carlo error propogation:
     N = nrow(tab)
-    MC_LENCOR = runif(n=N, min=1.0, max=1.5) # simulate uncertainty of river length (low res. DEM short circuits river meanders)
+    MC_LENCOR = runif(n=1, min=1.0, max=1.5) # simulate uncertainty of river length (low res. DEM short circuits river meanders)
     MC_LENGTH = EPtab$LENGTH_KM[evenInd]*MC_LENCOR
-    MC_UPSTR_ELEV = runif(n=N, min=EPtab$ELEV_M[oddInd]-5, max=EPtab$ELEV_M[oddInd]+5) # include 10 m of uncertainty to elevation
-    MC_DNSTR_ELEV = runif(n=N, min=EPtab$ELEV_M[evenInd]-5, max=EPtab$ELEV_M[evenInd]+5) # include 10 m of uncertainty to elevation
-    MC_ZSLOPE = runif(n=N, min=1e-5, max=1e-4)
+    MC_UPSTR_ELEV = runif(n=N, min=EPtab$ELEV_M[oddInd]-3.5, max=EPtab$ELEV_M[oddInd]+3.5) # include 10 m of uncertainty to elevation
+    MC_DNSTR_ELEV = runif(n=N, min=EPtab$ELEV_M[evenInd]-3.5, max=EPtab$ELEV_M[evenInd]+3.5) # include 10 m of uncertainty to elevation
+    MC_ZSLOPE = runif(n=1, min=1e-5, max=1e-4)
     
     # calculate gradient and remove duplicates:
     MC_SLOPE = (MC_UPSTR_ELEV - MC_DNSTR_ELEV)/(1e3*MC_LENGTH) # convert length from km to m
     
     # set zero or negative slopes to a minimum threshold:
-    MC_SLOPE[MC_SLOPE <= 0] = MC_ZSLOPE[MC_SLOPE <= 0]
+    MC_SLOPE[MC_SLOPE <= 0] = MC_ZSLOPE
     
     # add slope to polyline attribute table:
     m = match(tab$ARCID, EPtab$ARCID[oddInd])
     SLOPE = MC_SLOPE[m]
     tab = cbind(tab, SLOPE)
     
-    
     # generate hydraulic geometry uncertainty from the 5th, and 95th CI from Andreadis etal 2012:
-    MC_WIDTH = abs(rnorm(n=N, mean=tab$WIDTH, sd=gm_mean(c(tab$WIDTH-tab$WIDTH5, tab$WIDTH95-tab$WIDTH))/2))
-    MC_DEPTH = abs(rnorm(n=N, mean=tab$DEPTH, sd=gm_mean(c(tab$DEPTH-tab$DEPTH5, tab$DEPTH95-tab$DEPTH))/2))
+    mc_widthQuant = pnorm(rnorm(1))
+    if (mc_widthQuant < 0.5){
+      MC_WIDTH = abs(qnorm(mc_widthQuant, mean=tab$WIDTH, sd=(tab$WIDTH-tab$WIDTH5)/2))
+    }else{
+      MC_WIDTH = qnorm(mc_widthQuant, mean=tab$WIDTH, sd=(tab$WIDTH95-tab$WIDTH)/2)
+    }
+    mc_depthQuant = pnorm(rnorm(1))
+    if (mc_depthQuant < 0.5){
+      MC_DEPTH = abs(qnorm(mc_depthQuant, mean=tab$DEPTH, sd=(tab$DEPTH-tab$DEPTH5)/2))
+    }else{
+      MC_DEPTH = qnorm(mc_depthQuant, mean=tab$DEPTH, sd=(tab$DEPTH95-tab$DEPTH)/2)
+    }
+    
     # generate roughness uncertainty from XYZ: 
     MC_N = runif(n=N, min=0.02, max=0.05) # abs(rnorm(n=N, mean=0.03, sd=0.005)) # 
     
@@ -805,6 +805,8 @@ for (i in 1:length(cityDamGaugeFpaths)){
     tab = cumRivTime(tab, cTab)
   
     
+    # Process output data:
+    
     # add tab data to polyline shapefile data:
     # replace previously modified file with new copy:
     if (h == 1){
@@ -822,7 +824,7 @@ for (i in 1:length(cityDamGaugeFpaths)){
     
     
     
-    # Process output data:
+
     
     # WEIGHTED AVERAGED SHAPEFILE DBF:
     # for each simulation, take an cumulative mean of each cell in the 
@@ -841,6 +843,7 @@ for (i in 1:length(cityDamGaugeFpaths)){
     # for each simulation run, take the mean and median of each column
     # and concatenate them to a mean and median table. Can be used for
     # convergence plots. 
+    
     # set 0 dam and city travel times to NA to not bias column averaging:
     cumTab = tab
     cumTab$CITY_UPSTR_TIME_DAY[cumTab$CITY_UPSTR_TIME_DAY<=0] = NA
@@ -911,7 +914,7 @@ for (i in 1:length(cityDamGaugeFpaths)){
   print("Writing outputs")
   foreign::write.dbf(weightMeanTab, rivOutFpaths[i])
   
-  # write out mean and median column tabs:
+  # write out mean and median column tabs for monte carlo convergence plots:
   #print(paste("writing out column averaged table:", meanTabOutPath[i]))
   write.csv(meanTab, meanTabOutPath[i], row.names=F)
   write.csv(medTab, medTabOutPath[i], row.names=F)
@@ -919,10 +922,10 @@ for (i in 1:length(cityDamGaugeFpaths)){
 } # end region loop
 
 print(proc.time() - ptm)
-#system("say travel time calculation done run!")
+system("say travel time calculation done run!")
 
 # 20 runs took 4.8 hrs
-
+# 200 runs took 18 hrs
 
 
 
@@ -932,308 +935,307 @@ print(proc.time() - ptm)
 ################################################################################
 # VALIDATION - GAUGE CROSS CORRELATION ANALYSIS
 ################################################################################
-
-# set up PDF device:
-pdfOut = paste0(figOutFdir, '/validation/crossCorrelations.pdf')
-pdf(pdfOut, width = 7, height=5)
-
-# set the minimum days of overlap between the two gauge records for
-# them to be considered in the lag correlation analysis:
-minOvrlp = 5*365 # 5 years
-
-ptm = proc.time()
-# run through each region with gauges (na & ca) and conduct validation:
-for (i in c(4,6)){
-  
-  # read in segment attribute table and add empirical celerity & R columns:
-  tab = foreign::read.dbf(rivOutFpaths[i])
-  nCol1 = ncol(tab)
-  tab = cbind(tab, "OBS_CEL_R"=0, "OBS_CEL_MPS"=0, "OBS_CEL_DIST_KM"=0, 
-              "OBS_CEL_AREADIF_PER"=0, "OBS_CEL_LAG_D"=0, "Q_OVRLP_DAYS"=0, "CORRANGE"=0) 
-  newColInd = (1+nCol1):ncol(tab)
-  
-  #### #### 
-  # create a data frame containing , , ,
-  # distance 
-  celTab = tableMaker(colNames=c("ID", #segment ID
-                                 'R', # max lag correlation
-                                 "cel_mps", # celerity
-                                 'gDist_km', # distance between two correlated gauges
-                                 'gAreaDif_per', # area difference between correlated gauges
-                                 'lag_day', # lag time of max correlation
-                                 'Qoverlap',# N days of overlapping Q data between 2 gauges 
-                                 'Rrange'),  # range of cross correlations
-                      nrows=0, fill=NA)
-  
-  # read in and set up connectivity table:
-  cityDamGaugeNames = substr(rivEndPtTabFnames, 1, 2)
-  ii = grep(cityDamGaugeNames[i], rivNetworkConnectFnames)
-  cTab = read.csv(rivNetworkConnectFpaths[ii], header=F)
-  names(cTab) = c("UID", "DNSTR", "N_UPSTRSEGS", 
-                  "UPSTR1", "UPSTR2", "UPSTR3", "UPSTR4", "UPSTR5", "UPSTR6", 
-                  "UPSTR7", "UPSTR8", "UPSTR9", "UPSTR10", "UPSTR11", "UPSTR12")
-  
-  #### for each gauge, find downstream gauges, and their downstream distances and drainage areas: ######
-  segIDtab = dnStrGaugeCrawler(tab, cTab)
-  
-  # get the downstream gauges, drainage areas, and cumulative downstream distance:
-  segIDtab = matrix(segIDtab, nrow=nrow(segIDtab))
-  gCol = grep('GAUGE_Site|GAUGE_STAI', names(tab))
-  gTab = matrix(tab[segIDtab, gCol], nrow=nrow(segIDtab))
-  areaTab = matrix(tab$AREA[segIDtab], nrow=nrow(segIDtab))
-  distTab =  matrix(tab$MC_LENGTH[segIDtab], nrow=nrow(segIDtab))
-  cumDistTab = t(apply(distTab, 1, cumsum))
-  
-  # match up gauges linked to river network to file list. First, 
-  # get list of downstream gauge IDs and paths::
-  gFmatch_raw = match(gTab[,1], gNames)
-  notNA = !is.na(gFmatch_raw)
-  gFmatch = gFmatch_raw[notNA]
-  gRows = which(notNA)
-  g1Paths = gFpaths[gFmatch]
-  
-  # set up empty tables for calculated gauge parameters:
-  #lagTimeTab = corTab = modelTTtab = QoverlapTab = matrix(NA, nrow=nrow(gTab), ncol=ncol(gTab))
-    
-  # for each matching gauge, get the cross correlation of each downstream gauge
-  # and assign that to segments between the two gauges:
-  for (j in 1:length(gRows)){
-    print(j)
-    gRow = gRows[j]
-    gVec = gTab[gRow, ]
-    gDnStrmInd = gVec != 0 & !is.na(gVec) & gVec != gVec[1]
-    if (length(which(gDnStrmInd))==0){next} #print('no downstream gauges'); 
-    
-    # get gauge file paths, downstream distances, and upstream areas of 
-    # gauges located downstream:
-    gDnStrmID = gVec[gDnStrmInd]
-    gFmatch_dnStrm_raw = match(gDnStrmID, gNames)
-    gFmatch_dnStrmInd = which(!is.na(gFmatch_dnStrm_raw))
-    if (length(gFmatch_dnStrmInd)==0){next}#print('no downstream gauges on file'); 
-    
-    gFmatch_dnStrm = gFmatch_dnStrm_raw[gFmatch_dnStrmInd]
-    g2paths = gFpaths[gFmatch_dnStrm]
-    gDnStrmDist = cumDistTab[gRow, gDnStrmInd][gFmatch_dnStrmInd]
-    gDnStrmArea = areaTab[gRow, gDnStrmInd][gFmatch_dnStrmInd]
-    
-    lagRange = lagRangeCalc(minCel=0.1, maxCel=10, dnStrDist=gDnStrmDist)
-    
-    # only consider gauges that are close together that do not have a 
-    # large difference in drainage areas: 
-    #keepers = which((gDnStrmDist<1000 & (gDnStrmArea-areaTab[gRow,1])/gDnStrmArea<0.5))
-    #if (length(keepers)==0){next}
-    
-    #### lag correlation analysis:
-    g1 = read.table(g1Paths[j], sep=",", fill=T, header=T)[-1,]
-    # remove low flows from upper gauge discharge data:
-    Q1_orig = QreadAndProc(qTab=g1, quantile=0.0)
-    
-    # skip if gauge doesn't contain more than 5 years of flow data:
-    if (length(which(!is.na(Q1_orig)))<minOvrlp){next}
-    
-    # this could be sped up by reading in everything and put discharge data into a large matrix
-    # so that correlations could be run all at once but this approach is much more complicated 
-    # than individually analyzing correlations one by one:
-    for (k in 1:length(gFmatch_dnStrm)){ #for (k in (1:length(gFmatch_dnStrm))[keepers]){
-      g2 = read.table(g2paths[k], sep=",", fill=T, header=T)[-1,]
-      # match up the dates between the two gauge records:
-      dM = match(g1$datetime, g2$datetime)
-      dInd = which(!is.na(dM))
-      if (length(dInd)<minOvrlp){next}
-      # remove low flows from discharge data:
-      Q1 = Q1_orig
-      Q2 = QreadAndProc(qTab=g2, quantile=0.0)
-      
-      # skip if gauge doesn't contain more than 5 years of flow data:
-      if (length(which(!is.na(Q2)))<minOvrlp){next}
-      
-      # plot hydrograph timeseries over entire records:
-      # xlim = range(c(as.Date(g1$datetime), as.Date(g2$datetime)), na.rm=T)
-      # ylim = range(c(Q1, Q2)*cfs2mfsConv, na.rm=T)
-      # plot(as.Date(g1$datetime), Q1*cfs2mfsConv, type='l',
-      #     xlim=xlim, ylim=ylim, main=paste(j, k), ylab="Flow (cms)", col=1, lwd=0.4)
-      #lines(as.Date(g2$datetime), Q2*cfs2mfsConv, type='l', col=4, lwd=0.4)
-      
-      # match up two discharge records:
-      Q1_match = Q1[dInd]
-      Q2_match = Q2[dM[dInd]]
-      # remove blank discharge measurements:
-      keep = Q1_match!='' & Q2_match!='' #& Q1_match!=0 & Q2_match!=0 
-      dates = as.Date(g1$datetime[dInd], "%Y-%m-%d")
-      Q1 = as.numeric(Q1_match)
-      Q1[!keep] = NA
-      Q2 = as.numeric(Q2_match)
-      Q2[!keep] = NA
-      # skip to next gauge pair if there is not enough overlapping gauge records:
-      Qoverlap = length(which(!is.na(Q1) & !is.na(Q2)))
-      if (Qoverlap<minOvrlp){next}
-      
-      
-      ####
-      # use lag correlation to find the optimum lag time:
-      #corVec = lagCor(q1=Q1, q2=Q2, lagRange=lagRange, k=k)
-      corVec_raw = ccf(Q1, Q2, lag.max=200, na.action=na.pass, plot=F)
-      positiveLag = corVec_raw$lag > 0 #lagRange[k,1]
-      corVec = corVec_raw$acf[positiveLag]
-      # Pick the lag with the maximum correlation:
-      lag_day = which.max(corVec)
-      
-      # skip gauge pair if the folling conditions are not met:
-      if (!T %in% !is.na(corVec)){next}
-      if (length(lag_day)==0){next}
-      if (is.na(lag_day)){next}
-      # range and maxmimum of cross correlations must be greater than specified values:
-      corRange = range(corVec)
-      if ((corRange[2]-corRange[1]) < 0.5){next}
-      if (corRange[2] < 0.5){next}
-      # If peak correlation occurs on the first or last day of the lag window, 
-      # remove it from consideration because it the maximum lag might
-      # just be truncated by the window, rendering it meaningless. 
-      if (T %in% c(lag_day == c(1,200))){next}
-      
-      
-      ####
-      # assign celerity, correlation, and other parameters to segments between two gauges:
-      # this could be accomplished using less memory by creating a table that does not
-      # include each individual segIDs and only 1 row per celerity result...
-      ID = segIDtab[gRows[j], 1:which(gVec == gDnStrmID[k])]
-      
-      # calculate correlation coefficient and celerity:
-      R = corVec[lag_day]
-      Rrange = corRange[2]-corRange[1]
-      cel_mps = (gDnStrmDist[k] / lag_day)*kmpday2mpsConv # convert from m/s to days and km to m
-      gDist_km = gDnStrmDist[k]
-      gAreaDif_per = 100*(gDnStrmArea[k]-areaTab[gRow,1])/gDnStrmArea[k]
-      celTabMat = cbind(ID, R, cel_mps, gDist_km, gAreaDif_per, lag_day, Qoverlap, Rrange)
-      celTab = rbind(celTab, celTabMat)
-      
-      # fill in tabs:
-      modelTT = sum(tab$MC_LENGTH[ID]/(tab$CELER_MPS[ID]))*kmpday2mpsConv # convert from m/s to days and km to m
-      modelTTtab[gRow, gDnStrmInd][gFmatch_dnStrmInd[k]] = modelTT
-      lagTimeTab[gRow, gDnStrmInd][gFmatch_dnStrmInd[k]] = lag_day
-      corTab[gRow, gDnStrmInd][gFmatch_dnStrmInd[k]] = corVec[lag_day]
-      QoverlapTab[gRow, gDnStrmInd][gFmatch_dnStrmInd[k]] = Qoverlap
-      
-      ####
-      # Plot hydrograph and lag cross correlation analysis:
-      lagCorrPlot(tab, corVec, lag_day, gDnStrmDist, modelTT,  i, j, k, 
-                  Q1, Q2, cfs2mfsConv, dates, R, Qoverlap, gAreaDif_per, ID)
-      
-    }
-  }
-  
-  write.csv(celTab, celTabOutFpaths[i], row.names=F)
-  
-  celTab = read.csv(celTabOutFpaths[i], header=T)
-  
-  print(proc.time() - ptm)
- 
-  # join empirical celerity data onto flowlines, giving preference for higher correlation coeficients:
-  uID = unique(celTab$ID)
-  celTabColInd = 2:ncol(celTab)
-  for (j in 1:length(uID)){
-    uIDmatch = which(celTab$ID == uID[j])
-    tabInd = tab$ARCID == uID[j]
-    # use a correlation-weighted mean to caluclate celerity:
-    tab[tabInd, newColInd] = apply(celTab[uIDmatch, celTabColInd], 2, function(x) weighted.mean(x, celTab[uIDmatch, 2]))
-
-    # alternative: use the value with the maximum correlation:
-    #celTabInd = uIDmatch[which.max(celTab$R[uIDmatch])]
-    #tab[tabInd, newColInd] = celTab[celTabInd, celTabColInd]
-  }
-  
-
-  foreign::write.dbf(tab, obsOutFpaths[i])
-
-  keep = tab$OBS_CEL_MPS>0 # & tab$WIDTH>100# & tab$Q_OVRLP_DAYS>1e3 & tab$OBS_CEL_R<1 & tab$OBS_CEL_MPS > 0  & tab$OBS_CEL_MPS < 5
-  x = tab$OBS_CEL_MPS[keep]
-  x = rep(x, round(tab$LENGTH_KM[keep]), each=T)
-  hist(x, 40, main="hist of celerity", xlab="celerity (m/s)")
-
-  x = tab$OBS_CEL_R[keep]
-  x = rep(x, round(tab$LENGTH_KM[keep]), each=T)
-  hist(x, 50, main="hist of lag correlations with R > 0.5", xlab="R")
-  
-}
-
-dev.off()
-cmd = paste('open', pdfOut)
-system(cmd)
-
-# PLOT VALIDATION DISTRIBUTIONS (FIGURE 2):
-
-# read in and append each continent:
-for (i in c(4,6)){
-  tab = foreign::read.dbf(obsOutFpaths[i])
-  if (i == 4){ 
-    gTab = tab 
-  }else{ 
-    gTab = rbind(gTab, tab) 
-  }
-  print(paste(i, rivEndPtTabNames[i]))
-}
-
-xlim = c(0,10)
-ylim = c(0,5e3)
-keep = gTab$OBS_CEL_R>0  & gTab$CELER_MPS<xlim[2] & gTab$OBS_CEL_MP<xlim[2] & gTab$OBS_CEL_R>.5 & gTab$CORRANGE > 0.5 #& gTab$WIDTH>100
-x1 = gTab$CELER_MPS[keep]
-x1 = rep(x1, round(gTab$LENGTH_KM[keep]), each=T)
-x2 = gTab$OBS_CEL_MP[keep]
-x2 = rep(x2, round(gTab$LENGTH_KM[keep]), each=T)
-h1 = hist(x1, seq(0,100,.2), plot=F)
-h2 = hist(x2, seq(0,100,.2), plot=F)
-ylim = range(c(h1$counts, h2$counts))
-
-hist(x1, seq(0,xlim[2],.2), main="", #Modeled vs Observed Celerity", 
-     xlim=xlim,
-     ylim=ylim,
-     xlab="Flood Wave Velocity (m/s)", 
-     ylab="River Network Length (km)",
-     col="light blue",#rgb(0,.5,0,.5), 
-     border=1)
-par(new=T)
-hist(x2, seq(0,xlim[2],.2), main='',#main='WIDTH>100',
-     xlim=xlim, 
-     ylim=ylim,
-     xlab="", 
-     ylab="",
-     col=rgb(.5,.5,.5,.5),
-     border=1)
-legend("topright", legend=c("Observations", "Model"), 
-       text.col=c(rgb(.5,.5,.5,.5),'light blue'), 
-       text.font=2, cex=1.4, lwd=0, box.lwd=0)
-
-# calcualte validation stats:
-
-# RMSE:
-rmse <- function(error){sqrt(mean(error^2))}
-# Bias (mean error):
-me <- function(error){mean(error)}
-# Standard Error:
-se <- function(error){ sqrt(mean((error-mean(error))^2)) }
-
-# Calculate the error:
-error <- gTab$OBS_CEL_MP[keep] - gTab$CELER_MPS[keep]
-
-print(paste("RMSE:", round(rmse(error), 1)))
-print(paste("Bias:", round(me(error), 1)))
-print(paste("standard error:", round(se(error), 1)))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# 
+# # set up PDF device:
+# pdfOut = paste0(figOutFdir, '/validation/crossCorrelations.pdf')
+# pdf(pdfOut, width = 7, height=5)
+# 
+# # set the minimum days of overlap between the two gauge records for
+# # them to be considered in the lag correlation analysis:
+# minOvrlp = 5*365 # 5 years
+# 
+# ptm = proc.time()
+# # run through each region with gauges (na & ca) and conduct validation:
+# for (i in c(4,6)){
+#   
+#   # read in segment attribute table and add empirical celerity & R columns:
+#   tab = foreign::read.dbf(rivOutFpaths[i])
+#   nCol1 = ncol(tab)
+#   tab = cbind(tab, "OBS_CEL_R"=0, "OBS_CEL_MPS"=0, "OBS_CEL_DIST_KM"=0, 
+#               "OBS_CEL_AREADIF_PER"=0, "OBS_CEL_LAG_D"=0, "Q_OVRLP_DAYS"=0, "CORRANGE"=0) 
+#   newColInd = (1+nCol1):ncol(tab)
+#   
+#   # create a data frame containing , , ,
+#   # distance 
+#   celTab = tableMaker(colNames=c("ID", #segment ID
+#                                  'R', # max lag correlation
+#                                  "cel_mps", # celerity
+#                                  'gDist_km', # distance between two correlated gauges
+#                                  'gAreaDif_per', # area difference between correlated gauges
+#                                  'lag_day', # lag time of max correlation
+#                                  'Qoverlap',# N days of overlapping Q data between 2 gauges 
+#                                  'Rrange'),  # range of cross correlations
+#                       nrows=0, fill=NA)
+#   
+#   # read in and set up connectivity table:
+#   cityDamGaugeNames = substr(rivEndPtTabFnames, 1, 2)
+#   ii = grep(cityDamGaugeNames[i], rivNetworkConnectFnames)
+#   cTab = read.csv(rivNetworkConnectFpaths[ii], header=F)
+#   names(cTab) = c("UID", "DNSTR", "N_UPSTRSEGS", 
+#                   "UPSTR1", "UPSTR2", "UPSTR3", "UPSTR4", "UPSTR5", "UPSTR6", 
+#                   "UPSTR7", "UPSTR8", "UPSTR9", "UPSTR10", "UPSTR11", "UPSTR12")
+#   
+#   # for each gauge, find downstream gauges, and their downstream distances and drainage areas: 
+#   segIDtab = dnStrGaugeCrawler(tab, cTab)
+#   
+#   # get the downstream gauges, drainage areas, and cumulative downstream distance:
+#   segIDtab = matrix(segIDtab, nrow=nrow(segIDtab))
+#   gCol = grep('GAUGE_Site|GAUGE_STAI', names(tab))
+#   gTab = matrix(tab[segIDtab, gCol], nrow=nrow(segIDtab))
+#   areaTab = matrix(tab$AREA[segIDtab], nrow=nrow(segIDtab))
+#   distTab =  matrix(tab$MC_LENGTH[segIDtab], nrow=nrow(segIDtab))
+#   cumDistTab = t(apply(distTab, 1, cumsum))
+#   
+#   # match up gauges linked to river network to file list. First, 
+#   # get list of downstream gauge IDs and paths::
+#   gFmatch_raw = match(gTab[,1], gNames)
+#   notNA = !is.na(gFmatch_raw)
+#   gFmatch = gFmatch_raw[notNA]
+#   gRows = which(notNA)
+#   g1Paths = gFpaths[gFmatch]
+#   
+#   # set up empty tables for calculated gauge parameters:
+#   #lagTimeTab = corTab = modelTTtab = QoverlapTab = matrix(NA, nrow=nrow(gTab), ncol=ncol(gTab))
+#     
+#   # for each matching gauge, get the cross correlation of each downstream gauge
+#   # and assign that to segments between the two gauges:
+#   for (j in 1:length(gRows)){
+#     print(j)
+#     gRow = gRows[j]
+#     gVec = gTab[gRow, ]
+#     gDnStrmInd = gVec != 0 & !is.na(gVec) & gVec != gVec[1]
+#     if (length(which(gDnStrmInd))==0){next} #print('no downstream gauges'); 
+#     
+#     # get gauge file paths, downstream distances, and upstream areas of 
+#     # gauges located downstream:
+#     gDnStrmID = gVec[gDnStrmInd]
+#     gFmatch_dnStrm_raw = match(gDnStrmID, gNames)
+#     gFmatch_dnStrmInd = which(!is.na(gFmatch_dnStrm_raw))
+#     if (length(gFmatch_dnStrmInd)==0){next}#print('no downstream gauges on file'); 
+#     
+#     gFmatch_dnStrm = gFmatch_dnStrm_raw[gFmatch_dnStrmInd]
+#     g2paths = gFpaths[gFmatch_dnStrm]
+#     gDnStrmDist = cumDistTab[gRow, gDnStrmInd][gFmatch_dnStrmInd]
+#     gDnStrmArea = areaTab[gRow, gDnStrmInd][gFmatch_dnStrmInd]
+#     
+#     lagRange = lagRangeCalc(minCel=0.1, maxCel=10, dnStrDist=gDnStrmDist)
+#     
+#     # only consider gauges that are close together that do not have a 
+#     # large difference in drainage areas: 
+#     #keepers = which((gDnStrmDist<1000 & (gDnStrmArea-areaTab[gRow,1])/gDnStrmArea<0.5))
+#     #if (length(keepers)==0){next}
+#     
+#     #### lag correlation analysis:
+#     g1 = read.table(g1Paths[j], sep=",", fill=T, header=T)[-1,]
+#     # remove low flows from upper gauge discharge data:
+#     Q1_orig = QreadAndProc(qTab=g1, quantile=0.0)
+#     
+#     # skip if gauge doesn't contain more than 5 years of flow data:
+#     if (length(which(!is.na(Q1_orig)))<minOvrlp){next}
+#     
+#     # this could be sped up by reading in everything and put discharge data into a large matrix
+#     # so that correlations could be run all at once but this approach is much more complicated 
+#     # than individually analyzing correlations one by one:
+#     for (k in 1:length(gFmatch_dnStrm)){ #for (k in (1:length(gFmatch_dnStrm))[keepers]){
+#       g2 = read.table(g2paths[k], sep=",", fill=T, header=T)[-1,]
+#       # match up the dates between the two gauge records:
+#       dM = match(g1$datetime, g2$datetime)
+#       dInd = which(!is.na(dM))
+#       if (length(dInd)<minOvrlp){next}
+#       # remove low flows from discharge data:
+#       Q1 = Q1_orig
+#       Q2 = QreadAndProc(qTab=g2, quantile=0.0)
+#       
+#       # skip if gauge doesn't contain more than 5 years of flow data:
+#       if (length(which(!is.na(Q2)))<minOvrlp){next}
+#       
+#       # plot hydrograph timeseries over entire records:
+#       # xlim = range(c(as.Date(g1$datetime), as.Date(g2$datetime)), na.rm=T)
+#       # ylim = range(c(Q1, Q2)*cfs2mfsConv, na.rm=T)
+#       # plot(as.Date(g1$datetime), Q1*cfs2mfsConv, type='l',
+#       #     xlim=xlim, ylim=ylim, main=paste(j, k), ylab="Flow (cms)", col=1, lwd=0.4)
+#       #lines(as.Date(g2$datetime), Q2*cfs2mfsConv, type='l', col=4, lwd=0.4)
+#       
+#       # match up two discharge records:
+#       Q1_match = Q1[dInd]
+#       Q2_match = Q2[dM[dInd]]
+#       # remove blank discharge measurements:
+#       keep = Q1_match!='' & Q2_match!='' #& Q1_match!=0 & Q2_match!=0 
+#       dates = as.Date(g1$datetime[dInd], "%Y-%m-%d")
+#       Q1 = as.numeric(Q1_match)
+#       Q1[!keep] = NA
+#       Q2 = as.numeric(Q2_match)
+#       Q2[!keep] = NA
+#       # skip to next gauge pair if there is not enough overlapping gauge records:
+#       Qoverlap = length(which(!is.na(Q1) & !is.na(Q2)))
+#       if (Qoverlap<minOvrlp){next}
+#       
+#       
+#       #
+#       # use lag correlation to find the optimum lag time:
+#       #corVec = lagCor(q1=Q1, q2=Q2, lagRange=lagRange, k=k)
+#       corVec_raw = ccf(Q1, Q2, lag.max=200, na.action=na.pass, plot=F)
+#       positiveLag = corVec_raw$lag > 0 #lagRange[k,1]
+#       corVec = corVec_raw$acf[positiveLag]
+#       # Pick the lag with the maximum correlation:
+#       lag_day = which.max(corVec)
+#       
+#       # skip gauge pair if the folling conditions are not met:
+#       if (!T %in% !is.na(corVec)){next}
+#       if (length(lag_day)==0){next}
+#       if (is.na(lag_day)){next}
+#       # range and maxmimum of cross correlations must be greater than specified values:
+#       corRange = range(corVec)
+#       if ((corRange[2]-corRange[1]) < 0.5){next}
+#       if (corRange[2] < 0.5){next}
+#       # If peak correlation occurs on the first or last day of the lag window, 
+#       # remove it from consideration because it the maximum lag might
+#       # just be truncated by the window, rendering it meaningless. 
+#       if (T %in% c(lag_day == c(1,200))){next}
+#       
+#       
+#       #
+#       # assign celerity, correlation, and other parameters to segments between two gauges:
+#       # this could be accomplished using less memory by creating a table that does not
+#       # include each individual segIDs and only 1 row per celerity result...
+#       ID = segIDtab[gRows[j], 1:which(gVec == gDnStrmID[k])]
+#       
+#       # calculate correlation coefficient and celerity:
+#       R = corVec[lag_day]
+#       Rrange = corRange[2]-corRange[1]
+#       cel_mps = (gDnStrmDist[k] / lag_day)*kmpday2mpsConv # convert from m/s to days and km to m
+#       gDist_km = gDnStrmDist[k]
+#       gAreaDif_per = 100*(gDnStrmArea[k]-areaTab[gRow,1])/gDnStrmArea[k]
+#       celTabMat = cbind(ID, R, cel_mps, gDist_km, gAreaDif_per, lag_day, Qoverlap, Rrange)
+#       celTab = rbind(celTab, celTabMat)
+#       
+#       # fill in tabs:
+#       modelTT = sum(tab$MC_LENGTH[ID]/(tab$CELER_MPS[ID]))*kmpday2mpsConv # convert from m/s to days and km to m
+#       modelTTtab[gRow, gDnStrmInd][gFmatch_dnStrmInd[k]] = modelTT
+#       lagTimeTab[gRow, gDnStrmInd][gFmatch_dnStrmInd[k]] = lag_day
+#       corTab[gRow, gDnStrmInd][gFmatch_dnStrmInd[k]] = corVec[lag_day]
+#       QoverlapTab[gRow, gDnStrmInd][gFmatch_dnStrmInd[k]] = Qoverlap
+#       
+#       ###
+#       # Plot hydrograph and lag cross correlation analysis:
+#       lagCorrPlot(tab, corVec, lag_day, gDnStrmDist, modelTT,  i, j, k, 
+#                   Q1, Q2, cfs2mfsConv, dates, R, Qoverlap, gAreaDif_per, ID)
+#       
+#     }
+#   }
+#   
+#   write.csv(celTab, celTabOutFpaths[i], row.names=F)
+#   
+#   celTab = read.csv(celTabOutFpaths[i], header=T)
+#   
+#   print(proc.time() - ptm)
+#  
+#   # join empirical celerity data onto flowlines, giving preference for higher correlation coeficients:
+#   uID = unique(celTab$ID)
+#   celTabColInd = 2:ncol(celTab)
+#   for (j in 1:length(uID)){
+#     uIDmatch = which(celTab$ID == uID[j])
+#     tabInd = tab$ARCID == uID[j]
+#     # use a correlation-weighted mean to caluclate celerity:
+#     tab[tabInd, newColInd] = apply(celTab[uIDmatch, celTabColInd], 2, function(x) weighted.mean(x, celTab[uIDmatch, 2]))
+# 
+#     # alternative: use the value with the maximum correlation:
+#     #celTabInd = uIDmatch[which.max(celTab$R[uIDmatch])]
+#     #tab[tabInd, newColInd] = celTab[celTabInd, celTabColInd]
+#   }
+#   
+# 
+#   foreign::write.dbf(tab, obsOutFpaths[i])
+# 
+#   keep = tab$OBS_CEL_MPS>0 # & tab$WIDTH>100# & tab$Q_OVRLP_DAYS>1e3 & tab$OBS_CEL_R<1 & tab$OBS_CEL_MPS > 0  & tab$OBS_CEL_MPS < 5
+#   x = tab$OBS_CEL_MPS[keep]
+#   x = rep(x, round(tab$LENGTH_KM[keep]), each=T)
+#   hist(x, 40, main="hist of celerity", xlab="celerity (m/s)")
+# 
+#   x = tab$OBS_CEL_R[keep]
+#   x = rep(x, round(tab$LENGTH_KM[keep]), each=T)
+#   hist(x, 50, main="hist of lag correlations with R > 0.5", xlab="R")
+#   
+# }
+# 
+# dev.off()
+# cmd = paste('open', pdfOut)
+# system(cmd)
+# 
+# # PLOT VALIDATION DISTRIBUTIONS (FIGURE 2):
+# 
+# # read in and append each continent:
+# for (i in c(4,6)){
+#   tab = foreign::read.dbf(obsOutFpaths[i])
+#   if (i == 4){ 
+#     gTab = tab 
+#   }else{ 
+#     gTab = rbind(gTab, tab) 
+#   }
+#   print(paste(i, rivEndPtTabNames[i]))
+# }
+# 
+# xlim = c(0,10)
+# ylim = c(0,5e3)
+# keep = gTab$OBS_CEL_R>0  & gTab$CELER_MPS<xlim[2] & gTab$OBS_CEL_MP<xlim[2] & gTab$OBS_CEL_R>.5 & gTab$CORRANGE > 0.5 #& gTab$WIDTH>100
+# x1 = gTab$CELER_MPS[keep]
+# x1 = rep(x1, round(gTab$LENGTH_KM[keep]), each=T)
+# x2 = gTab$OBS_CEL_MP[keep]
+# x2 = rep(x2, round(gTab$LENGTH_KM[keep]), each=T)
+# h1 = hist(x1, seq(0,100,.2), plot=F)
+# h2 = hist(x2, seq(0,100,.2), plot=F)
+# ylim = range(c(h1$counts, h2$counts))
+# 
+# hist(x1, seq(0,xlim[2],.2), main="", #Modeled vs Observed Celerity", 
+#      xlim=xlim,
+#      ylim=ylim,
+#      xlab="Flood Wave Velocity (m/s)", 
+#      ylab="River Network Length (km)",
+#      col="light blue",#rgb(0,.5,0,.5), 
+#      border=1)
+# par(new=T)
+# hist(x2, seq(0,xlim[2],.2), main='',#main='WIDTH>100',
+#      xlim=xlim, 
+#      ylim=ylim,
+#      xlab="", 
+#      ylab="",
+#      col=rgb(.5,.5,.5,.5),
+#      border=1)
+# legend("topright", legend=c("Observations", "Model"), 
+#        text.col=c(rgb(.5,.5,.5,.5),'light blue'), 
+#        text.font=2, cex=1.4, lwd=0, box.lwd=0)
+# 
+# # calcualte validation stats:
+# 
+# # RMSE:
+# rmse <- function(error){sqrt(mean(error^2))}
+# # Bias (mean error):
+# me <- function(error){mean(error)}
+# # Standard Error:
+# se <- function(error){ sqrt(mean((error-mean(error))^2)) }
+# 
+# # Calculate the error:
+# error <- gTab$OBS_CEL_MP[keep] - gTab$CELER_MPS[keep]
+# 
+# print(paste("RMSE:", round(rmse(error), 1)))
+# print(paste("Bias:", round(me(error), 1)))
+# print(paste("standard error:", round(se(error), 1)))
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
 
 ################################################################################
 # GRAPHS AND TABLES, FIGURE S3
@@ -1452,8 +1454,10 @@ keep_swot = keep & wide
 keep_c_swot = keep_c & wide
 keep_d_swot = keep_d & wide
 
-
-
+# set up output table (Table 1):
+dayVec = c(1,2,5,10,45)
+latTab = as.data.frame(array(NA, c(length(dayVec), length(tabOrder))))
+names(latTab) = tabOrder
 
 
 
@@ -1465,7 +1469,7 @@ par(mar=c(5,4,2,5))
 # travel times:
 for (j in 1:length(tabOrder)){
   # sum each region together:
-  for (i in 1:7){
+  for (i in 4:4){
     distribOutPath = paste0(tabOutFdir, '/distributions/', rivEndPtTabNames[i], '/', tabOrder[j], '.csv')
     if (i == 1){ 
       dTab = read.csv(distribOutPath, header=T)
@@ -1489,8 +1493,8 @@ for (j in 1:length(tabOrder)){
   plotLimInd = which(breaks<=xlim[2])
   nPlim = length(plotLimInd)
   breaks = breaks[plotLimInd]
-  lB = breaks[-length(breaks)]
-  rB = breaks[-1]
+  lB = c(0, breaks[-length(breaks)])
+  rB = breaks
   mid = colMeans(rbind(lB, rB))
   
   
@@ -1510,7 +1514,7 @@ for (j in 1:length(tabOrder)){
   # options(warn=0)
   
   # plot median histogram:
-  quarts = apply(dTab, 2, quantile, probs=c(0.25, 0.5, 0.75))[,plotLimInd[-nPlim]]
+  quarts = apply(dTab, 2, quantile, probs=c(0.25, 0.5, 0.75))[,plotLimInd]
   ylim = range(c(0, quarts))
   
   plot(xlim, ylim, type='n',
@@ -1523,20 +1527,25 @@ for (j in 1:length(tabOrder)){
           y=rbind(quarts[2,], quarts[2,], 0, 0, NA),
           border=NA, col=rgb(0.7, 0.7, 0.7, 1))
   
-  #matlines(mid, t(dTab[,1:50]), lty=1, col=rgb(1,0,0,0.2))
+  # add runs:
+  matlines(mid, t(dTab[,(plotLimInd)]), 
+           axt="n", yaxt ="n", xlab=NA, ylab=NA, 
+           lty=1, lwd=0.3, 
+           col=rgb(1,0,0,1))
   # add 1st and 3rd quartile uncertainty bars:
   zC = quarts[1,]>0 & quarts[2,]>0 & quarts[3,]>0
-  arrows(mid[zC], quarts[2,zC], mid[zC], quarts[1,zC], length=0.018, angle=90, lwd=0.6)
-  arrows(mid[zC], quarts[2,zC], mid[zC], quarts[3,zC], length=0.018, angle=90, lwd=0.6)
+  arrows(mid[zC], quarts[1,zC], mid[zC], quarts[3,zC], 
+         code=3, length=0.018, angle=90, lwd=0.6)
   
   # add CDF:
   cumTab = apply(dTab, 1, cumsum)
-  normCumTab = rbind(0, cumTab/apply(cumTab, 2, max))
+  maxVec = apply(cumTab, 2, max)
+  normCumTab = rbind(0, t(t(cumTab)/maxVec))
   
   par(new=T); 
-  matplot(c(lB,xlim[2]), normCumTab[1:(length(rB)+1),], type='l', 
+  matplot(c(lB, xlim[2]), normCumTab[1:(length(rB)+1),], type='l', 
           xaxt="n", yaxt ="n", xlab=NA, ylab=NA, 
-          lty=1, bty="n", lwd=0.3, col=rgb(0,0,1,0.1))
+          lty=1, bty="n", lwd=0.3, col=rgb(0,0,1,1))
   axis(4, las=1, col=4, col.ticks=4, col.axis=4)
   corns = par("usr"); par(xpd=T)
   text(x=corns[2]+(corns[2]-corns[1])/4, y=mean(corns[3:4]),
@@ -1544,21 +1553,21 @@ for (j in 1:length(tabOrder)){
        srt=270,
        col=4)
   
-
+  
   # add median point to plot:
-  splF = splinefun(rep(1:nrow(normCumTab), nRun), as.vector(normCumTab))
-  
-  cdfXseq = seq(xlim[1], xlim[2], length.out=100)
-  cdf = splF(cdfXseq)
-  lines(cdfXseq)
-  
-  cdf = (rowMeans(normCumTab))
-  splF = splinefun(1:nRun, cdf)
-  medInd = which.min(abs(cdf-0.5))
-  medDayColName = row.names(normCumTab)[medInd]
-  as.numeric(strsplit(medDayColName, '_')[[1]][2])
-  
-  
+  # splF = splinefun(rep(1:nrow(normCumTab), nRun), as.vector(normCumTab))
+  # 
+  # cdfXseq = seq(xlim[1], xlim[2], length.out=100)
+  # cdf = splF(cdfXseq)
+  # lines(cdfXseq)
+  # 
+  # cdf = (rowMeans(normCumTab))
+  # splF = splinefun(1:nRun, cdf)
+  # medInd = which.min(abs(cdf-0.5))
+  # medDayColName = row.names(normCumTab)[medInd]
+  # as.numeric(strsplit(medDayColName, '_')[[1]][2])
+  # 
+  # 
   # medInd = median(apply(abs(normCumTab-0.5), 2, which.min))+1
   # medDayColName = row.names(normCumTab)[medInd]
   # med = as.numeric(strsplit(medDayColName, '_')[[1]][2])
@@ -1578,8 +1587,17 @@ for (j in 1:length(tabOrder)){
   # lines(cdfXseq, cdf(cdfXseq), col=2)
   # 
   
-
   
+  
+  # fill in Table 4:
+  rowSumTab = rowSums(dTab)
+  dayTab = dTab[,dayVec]
+  
+  perTab = 1-dayTab/rowSumTab
+  
+  obTab = (apply(perTab, 2, quantile, probs=c(0.25, 0.5, 0.75)))*100
+  latTab[,j]  = paste0(obTab[2,], " +", round(obTab[1,]-obTab[2,],1), 
+                 " -", round(obTab[2,]-obTab[3,], 1))
 }
 
 dev.off()
@@ -1622,23 +1640,23 @@ pdfOut = paste0(figOutFdir, '/simConvergence.pdf')
 pdf(pdfOut, width=12, height=12)
 par(mfrow=c(2,1))
 par(mar=c(5,18,4,2))
-options(scipen=999)
+#options(scipen=999)
 
 # read in each mean and median tab and combine by taking average, weighted by
 # number of segments in each:
 for (h in 1:ncol(aveTabPaths)){
   for (i in 1:nrow(aveTabPaths)){
-    if (i==1){ 
+    if (i==1){
       mTab = read.csv(aveTabPaths[i,h], header=T)
-    }else{ 
-      inTab = read.csv(aveTabPaths[i,h], header=T) 
+    }else{
+      inTab = read.csv(aveTabPaths[i,h], header=T)
 
       totLength = mTab$TOT_LENGTH_KM
       weights = c(mTab$TOT_LENGTH_KM[1], inTab$TOT_LENGTH_KM[1])/
         (mTab$TOT_LENGTH_KM[1]+inTab$TOT_LENGTH_KM[1])
       mTab = Reduce(`+`, Map(`*`, list(mTab, inTab), weights))
       mTab$TOT_LENGTH_KM = totLength+inTab$TOT_LENGTH_KM
-      
+
     }
   }
   
@@ -1666,7 +1684,7 @@ for (h in 1:ncol(aveTabPaths)){
       colInd = grep(colNames[j], names(mTab))[1]
       y = mTab[,colInd]
       mY = mean(y)
-      cumAve = cumsum(y)/1:nRun
+      cumAve = cumsum(y)/(1:nRun)
       yRange = mY+c(-max(abs(cumAve-mY)), max(abs(cumAve-mY)))
       
       par(new=T)
