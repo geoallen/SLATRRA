@@ -1166,113 +1166,155 @@ print(proc.time() - ptm)
 # dev.off()
 # cmd = paste('open', pdfOut)
 # system(cmd)
-# 
-# # PLOT VALIDATION DISTRIBUTIONS (FIGURE 2):
-# 
-# # read in and append each continent:
-# for (i in c(4,6)){
-#   tab = foreign::read.dbf(obsOutFpaths[i])
-#   if (i == 4){ 
-#     gTab = tab 
-#   }else{ 
-#     gTab = rbind(gTab, tab) 
-#   }
-#   print(paste(i, rivEndPtTabNames[i]))
-# }
-# 
-# xlim = c(0,10)
-# ylim = c(0,5e3)
-# keep = gTab$OBS_CEL_R>0  & gTab$CELER_MPS<xlim[2] & gTab$OBS_CEL_MP<xlim[2] & gTab$OBS_CEL_R>.5 & gTab$CORRANGE > 0.5 #& gTab$WIDTH>100
-# x1 = gTab$CELER_MPS[keep]
-# x1 = rep(x1, round(gTab$LENGTH_KM[keep]), each=T)
-# x2 = gTab$OBS_CEL_MP[keep]
-# x2 = rep(x2, round(gTab$LENGTH_KM[keep]), each=T)
-# h1 = hist(x1, seq(0,100,.2), plot=F)
-# h2 = hist(x2, seq(0,100,.2), plot=F)
-# ylim = range(c(h1$counts, h2$counts))
-# 
-# hist(x1, seq(0,xlim[2],.2), main="", #Modeled vs Observed Celerity", 
-#      xlim=xlim,
-#      ylim=ylim,
-#      xlab="Flood Wave Velocity (m/s)", 
-#      ylab="River Network Length (km)",
-#      col="light blue",#rgb(0,.5,0,.5), 
-#      border=1)
-# par(new=T)
-# hist(x2, seq(0,xlim[2],.2), main='',#main='WIDTH>100',
-#      xlim=xlim, 
-#      ylim=ylim,
-#      xlab="", 
-#      ylab="",
-#      col=rgb(.5,.5,.5,.5),
-#      border=1)
-# legend("topright", legend=c("Observations", "Model"), 
-#        text.col=c(rgb(.5,.5,.5,.5),'light blue'), 
-#        text.font=2, cex=1.4, lwd=0, box.lwd=0)
-# 
-# # calcualte validation stats:
-# 
-# # RMSE:
-# rmse <- function(error){sqrt(mean(error^2))}
-# # Bias (mean error):
-# me <- function(error){mean(error)}
-# # Standard Error:
-# se <- function(error){ sqrt(mean((error-mean(error))^2)) }
-# 
-# # Calculate the error:
-# error <- gTab$OBS_CEL_MP[keep] - gTab$CELER_MPS[keep]
-# 
-# print(paste("RMSE:", round(rmse(error), 1)))
-# print(paste("Bias:", round(me(error), 1)))
-# print(paste("standard error:", round(se(error), 1)))
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
+ 
+# PLOT VALIDATION DISTRIBUTIONS (FIGURE 2):
+# join observations to model results:
 
-################################################################################
-# GRAPHS AND TABLES, FIGURE S3
-################################################################################
 
-## APPEND ALL REGIONS TOGETHER: ####
-# read in and append each regional mean shapefile DBF:
-for (i in c(1:7)){
-  tab = foreign::read.dbf(rivOutFpaths[i])
-  #tab = foreign::read.dbf(obsOutFpaths[i])
-  # ## TEMP TEMP
-  # # remove observational columns and gauge columns:
-  # obsCols = grep("OBS", names(tab))
-  # if (length(obsCols)>0){
-  #   tab = tab[,-obsCols]
-  #   names(tab)[names(tab) != names(gTab)] =  names(gTab)[names(tab) != names(gTab)]
-  # }
-  # obsCols = grep("GAUGE", names(tab))
-  # if (length(obsCols)>0){
-  #   tab = tab[,-obsCols]
-  #   #names(tab)[names(tab) != names(gTab)] =  names(gTab)[names(tab) != names(gTab)]
-  # }
-  # ## TEMP TEMP ^^^
-  if (i == 1){
-    gTab = tab
+
+# read in and append each validation tab:
+for (i in c(4,6)){
+  obsTab = foreign::read.dbf(obsOutFpaths[i])
+  modTab = foreign::read.dbf(rivOutFpaths[i])
+  if (i == 4){
+    vTab = obsTab
+    gTab = modTab
   }else{
-    gTab = rbind(gTab, tab)
+    vTab = rbind(vTab, obsTab)
+    gTab = rbind(gTab, modTab)
   }
   print(paste(i, rivEndPtTabNames[i]))
 }
 system("say austrolapithicus!")
+obsCols = c(grep("OBS", names(vTab))[1]:ncol(vTab))
+gTab = cbind(gTab, vTab[,obsCols])
 
+
+
+# try basin-by-basin subsampling:
+keep = gTab$CELER_MPS<xlim[2] & gTab$OBS_CEL_MP<xlim[2] & gTab$OBS_CEL_R>0.5 & gTab$CORRANGE > 0.5 #& gTab$WIDTH>100
+
+basinUID = unique(gTab$hBASIN[keep])
+
+obsBasinMeanCel = modBasinMeanCel = nSegs = vector()
+for (i in 1:length(basinUID)){
+  ind = which(gTab$hBASIN[keep] == basinUID[i])
+  nSegs[i] = length(ind)
+  obsBasinMeanCel[i] = mean(gTab$OBS_CEL_MP[keep][ind])
+  modBasinMeanCel[i] = mean(gTab$CELER_MPS[keep][ind])
+  
+}
+
+par(xpd=F)
+plotMax = max(c(obsBasinMeanCel, modBasinMeanCel))
+plot(c(0,plotMax), c(0,plotMax),
+     main="Basin-by-basin comparison",
+     xlab="Gauge-based celerity (m/s)",
+     ylab="Modeled celerity (m/s)",
+     type='n', asp=1)
+text(obsBasinMeanCel, modBasinMeanCel, nSegs, cex=0.7)
+abline(0, 1)
+
+
+
+quantile(nSegs, (1:100)/100)
+length(which(nSegs > 100))
+
+
+
+
+# Plot up the side-by-side histograms:
+pdfOut = paste0(figOutFdir, '/validationHistogram.pdf')
+pdf(pdfOut, width = 3.4, height=6)
+xlim = c(0,10)
+ylim = c(0,5e3)
+keep = gTab$OBS_CEL_R>0  & gTab$CELER_MPS<xlim[2] & gTab$OBS_CEL_MP<xlim[2] & gTab$OBS_CEL_R>.5 & gTab$CORRANGE > 0.5 #& gTab$WIDTH>100
+x1 = gTab$CELER_MPS[keep]
+x1 = rep(x1, round(gTab$LENGTH_KM[keep]), each=T)
+x2 = gTab$OBS_CEL_MP[keep]
+x2 = rep(x2, round(gTab$LENGTH_KM[keep]), each=T)
+h1 = hist(x1, seq(0,100,0.2), plot=F)
+h2 = hist(x2, seq(0,100,0.2), plot=F)
+ylim = range(c(h1$counts, h2$counts))
+
+par(lwd=0.5)
+hist(x1, seq(0,xlim[2],.2), main="", #Modeled vs Observed Celerity",
+     xlim=xlim,
+     ylim=ylim,
+     xlab="Celerity (m/s)",
+     ylab="River Network Length (km)",
+     axes=F,
+     col="light blue",#rgb(0,.5,0,.5),
+     border=1,
+     lwd=0.5)
+par(new=T)
+hist(x2, seq(0,xlim[2],.2), main='',#main='WIDTH>100',
+     xlim=xlim, ylim=ylim,
+     xlab="", ylab="",
+     axes=F, col=rgb(.5,.5,.5,.5),
+     border=1, lwd=0.5)
+axis(1, lwd=0.5)
+axis(2, lwd=0.5)
+#legend("topright", legend=c("Observations", "Model"),
+#       text.col=c(rgb(.5,.5,.5,.5),'light blue'),
+#       text.font=2, cex=1.4, lwd=0, box.lwd=0)
+
+dev.off()
+cmd = paste('open', pdfOut)
+system(cmd)
+
+
+# calcualte validation stats:
+
+# RMSE:
+rmse <- function(error){sqrt(mean(error^2))}
+# Bias (mean error):
+me <- function(error){mean(error)}
+# Standard Error:
+se <- function(error){ sqrt(mean((error-mean(error))^2)) }
+
+# Calculate the error:
+error = gTab$OBS_CEL_MP[keep] - gTab$CELER_MPS[keep]
+
+# 25th, 50th, and 75th quartiles:
+quartiles <- function(x){return(quantile(x, c(0.25, 0.5, 0.75)))}
+uncertainty <- function(quarts){
+  return(paste0(round(quarts[2],1), " +", 
+                round(quarts[3]-quarts[2], 1), " -", 
+                round(quarts[2]-quarts[1], 1)))
+}
+
+
+print(paste("RMSE:", round(rmse(error), 1)))
+print(paste("Bias:", round(me(error), 1)))
+print(paste("standard error:", round(se(error), 1)))
+print(paste("Model spread:", uncertainty(quartiles(gTab$CELER_MPS[keep]))))
+print(paste("Gauge spread:", uncertainty(quartiles(gTab$OBS_CEL_MP[keep]))))
+
+
+
+
+
+
+
+
+
+################################################################################
+# GRAPHS AND TABLES
+################################################################################
+
+## APPEND ALL REGIONS TOGETHER: ####
+# #read in and append each regional mean shapefile DBF:
+# for (i in c(1:7)){
+#   tab = foreign::read.dbf(rivOutFpaths[i])
+#   if (i == 1){
+#     gTab = tab
+#   }else{
+#     gTab = rbind(gTab, tab)
+#   }
+#   print(paste(i, rivEndPtTabNames[i]))
+# }
+# system("say austrolapithicus!")
 
 
 
@@ -1327,7 +1369,9 @@ for (j in 1:length(tabOrder)){
     } else { dTab = dTab + read.csv(distribOutPath, header=T) }
   }
 
-
+  # calc RMSE with units of minutes: 
+  #rmse = sqrt(mean((colMeans(dTab) - t(dTab))^2))
+  
   # divide table by max order of magnitude for pretty y axes:
   oOm = 10^floor(log10(max(dTab)))
   dTab = dTab[,-1]/oOm
@@ -1351,10 +1395,11 @@ for (j in 1:length(tabOrder)){
   quarts = apply(dTab, 2, quantile, probs=c(0.25, 0.5, 0.75))[,plotLimInd[-length(breaks)]]
   ylim = range(c(0, quarts))
   plot(xlim, ylim, type='n',
-       main='',
-       xlab=xLabOrder[j],
-       ylab='Global River Length (km)',
-       las=1)
+       main='', xlab=xLabOrder[j], ylab='Global River Length (km)',
+       bty='n', axes=F)
+  box(lwd=0.5)
+  axis(1, lwd=0.5)
+  axis(2, lwd=0.5, las=1)
   mtext(formatC(oOm, format="g"), adj=0, padj=-1, outer=F, cex=0.7)
   polygon(x=rbind(lB, rB, rB, lB, NA),
           y=rbind(quarts[2,], quarts[2,], 0, 0, NA),
@@ -1363,12 +1408,12 @@ for (j in 1:length(tabOrder)){
   # add runs:
   # matlines(c(0,rB), t(dTab[,(plotLimInd)]),
   #          axt="n", yaxt ="n", xlab=NA, ylab=NA,
-  #          bty="n", lty=1, lwd=0.3, col=rgb(1,0,0,0.1))
+  #          bty="n", lty=1, lwd=0.3, col=rgb(1,0,0,0.05))
 
   # add 1st and 3rd quartile uncertainty bars:
   zC = T#quarts[1,]>0 & quarts[2,]>0 & quarts[3,]>0
   arrows(mid[zC], quarts[1,zC], mid[zC], quarts[3,zC],
-         code=3, length=0.018, angle=90, lwd=0.6)
+         code=3, length=0.018, angle=90, lwd=0.5)
 
   # add CDFs:
   cumTab = apply(dTab, 1, cumsum)
@@ -1378,7 +1423,7 @@ for (j in 1:length(tabOrder)){
   matplot(c(lB, xlim[2]), normCumTab[1:(length(rB)+1),], type='l',
           xaxt="n", yaxt ="n", xlab=NA, ylab=NA,
           lty=1, bty="n", lwd=0.3, col=rgb(0,0,1,.2))
-  axis(4, las=1, col=4, col.ticks=4, col.axis=4)
+  axis(4, las=1, lwd=0.5, col=4, col.ticks=4, col.axis=4)
   #mtext("Probability", side=4, col=4)
   corns = par("usr"); par(xpd=T)
   text(x=corns[2]+(corns[2]-corns[1])/4, y=mean(corns[3:4]),
@@ -1405,7 +1450,7 @@ for (j in 1:length(tabOrder)){
   
   # add median point derived from histogram:
   medDay = probTab[2,j]
-  points(medDay, 0.5, col=4)
+  points(medDay, 0.5, pch=1, cex=1, col=1)
   text(medDay, 0.5, paste0("(",round(medDay,1), ", 0.5)"), pos=4, col=4)
 
   # fill in Table 1:
@@ -1413,6 +1458,9 @@ for (j in 1:length(tabOrder)){
   obTab = (apply(perTab, 2, quantile, probs=c(0.25, 0.5, 0.75)))*100
   latTab[,j]  = paste0(round(obTab[2,],1), " +", round(obTab[3,]-obTab[2,],1),
                        " -", round(obTab[2,]-obTab[1,], 1))
+  
+  
+  
 }
 
 # write out probability table:
@@ -1431,6 +1479,10 @@ print(latTab)
 dev.off()
 cmd = paste('open', pdfOut)
 system(cmd)
+
+
+
+
 
 
 
@@ -1495,7 +1547,7 @@ for (h in 1:ncol(aveTabPaths)){
     legNames = legNameList[[i]]
     plot(c(1,nRun), c(1, -1), type="n",
          main=paste0(letters[i], '. ', varType[i]),
-         bty="n", xlab="N Runs", ylab="", yaxt="n")
+         bty="n", xlab="N Ensembles", ylab="", yaxt="n")
     mtext(paste("Cumulative", stat[h]), side=2,
           line=length(colNames)*2.1+1)
     segments(-1, 0, nRun+1, 0, lty=2)
