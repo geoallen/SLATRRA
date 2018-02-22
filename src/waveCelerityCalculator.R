@@ -1304,17 +1304,17 @@ print(paste("Gauge spread:", uncertainty(quartiles(gTab$OBS_CEL_MP[keep]))))
 ################################################################################
 
 ## APPEND ALL REGIONS TOGETHER: ####
-# #read in and append each regional mean shapefile DBF:
-# for (i in c(1:7)){
-#   tab = foreign::read.dbf(rivOutFpaths[i])
-#   if (i == 1){
-#     gTab = tab
-#   }else{
-#     gTab = rbind(gTab, tab)
-#   }
-#   print(paste(i, rivEndPtTabNames[i]))
-# }
-# system("say austrolapithicus!")
+# read in and append each regional mean shapefile DBF:
+for (i in c(1:7)){
+  tab = foreign::read.dbf(rivOutFpaths[i])
+  if (i == 1){
+    gTab = tab
+  }else{
+    gTab = rbind(gTab, tab)
+  }
+  print(paste(i, rivEndPtTabNames[i]))
+}
+system("say austrolapithicus!")
 
 
 
@@ -1345,7 +1345,7 @@ keep_c_swot = keep_c & wide
 keep_d_swot = keep_d & wide
 
 # set up output table (Table 1):
-dayVec = c(1,2,5,10,45)
+dayVec = c(1:5,10,45)
 latTab = as.data.frame(array(NA, c(length(dayVec), length(tabOrder))))
 names(latTab) = tabOrder
 
@@ -1538,7 +1538,7 @@ for (h in 1:ncol(aveTabPaths)){
   
   # write out global column-averaged table:
   globAveTabPath = sub('af_', '_global_', aveTabPaths[1,h])
-  write.csv(mTab, globAveTabPath, row.names=T)
+  write.csv(mTab, globAveTabPath, row.names=F)
 
 
   # for each input and output variable, plot simulation convergence:
@@ -1582,3 +1582,76 @@ dev.off()
 cmd = paste('open', pdfOut)
 system(cmd)
 print(proc.time() - ptm)
+
+
+
+
+
+
+
+
+
+
+
+
+## SENSITIVITY ANALYSIS SCATTER PLOTS ####
+h = 1
+  
+  
+# read in global column-averaged table:
+globAveTabPath = sub('af_', '_global_', aveTabPaths[1,h])
+mTab = read.csv(globAveTabPath, header=T)
+
+tabNames = names(mTab)
+
+xFieldNames_raw = c("MC_WIDTH", "MC_DEPTH", "MC_LENCOR", "MC_SLOPE", "MC_ZSLOPE", "MC_N")
+yFieldNames_raw = c("CELER_MPS","UPSTR_TIME_DAY")
+xFieldNames = rep(xFieldNames_raw, length(yFieldNames_raw))
+yFieldNames = rep(yFieldNames_raw, each=length(xFieldNames_raw))
+
+xLabNames_raw = c("Mean simulated width (m)", "Mean simulated depth (m)", 
+              "Length correction factor", "Mean simulated slope (m)",
+              "Minimum slope threshold", "Simulated Manning's n") 
+yLabNames_raw = c("Celerity (m/s)", "Mean wave travel time (days)")
+xLabNames = rep(xLabNames_raw, length(yLabNames_raw))
+yLabNames = rep(yLabNames_raw, each=length(xLabNames_raw))
+
+xFieldMatch = match(xFieldNames, tabNames)
+yFieldMatch = match(yFieldNames, tabNames)
+
+# set up device: 
+nPlots = length(xFieldNames)
+
+
+pdfOut = paste0(figOutFdir, '/sensAnalysisXYplots.pdf')
+pdf(pdfOut, width=6.5, height=9)
+layout(matrix(1:nPlots, nrow=4, byrow=T))
+par(mar=c(4,5,3,1))
+
+
+# plot the sensitivity of each output to each input:
+for (i in 1:nPlots){
+  plot(mTab[,xFieldMatch[i]], mTab[,yFieldMatch[i]], 
+       xlab = xLabNames[i],
+       ylab = yLabNames[i],
+       las=1, pch=16)
+  mtext(letters[i], adj=0, padj=-1, outer=F, cex=1.1, font=2)
+  
+  # # add linear regression and statistics:
+  # finites = is.finite(mTab[,xFieldMatch[i]]) & is.finite(mTab[,yFieldMatch[i]])
+  # mod = lm(mTab[,yFieldMatch[i]][finites] ~ 
+  #            mTab[,xFieldMatch[i]][finites])
+  # abline(mod)
+  # mtext(paste0("y = ", round(mod$coefficients[[2]], 2), "x + ", round(mod$coefficients[[1]], 2)))
+  # p = round(summary(mod)$coefficients[2,4], 3)
+  # if (p == 0){ p = "p < 0.001" }else{ p = paste("p =", p) }
+  # mtext(p, adj=1, padj=-1, outer=F, cex=0.7)
+  # r2 = paste("R2 =", round(summary(mod)$r.square, 2))
+  # mtext(r2, adj=0, padj=-1, outer=F, cex=0.7)
+}
+
+
+dev.off()
+cmd = paste('open', pdfOut)
+system(cmd)
+
