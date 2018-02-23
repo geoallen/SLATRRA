@@ -52,36 +52,48 @@ if (!"abind" %in% rownames(installed.packages())){
 ################################################################################
 # FUNCTIONS
 ################################################################################
-
-# for a given river segment, returns the upstream segment with the greatest
-# drainage area. Takes in connectivity table and info about drainage area:
 tableMaker = function(colNames, nrows, fill=NA){
+  
+  # Creates a data frame with specified dimensions
+  #
+  # Input vars:
+  # colNames - vector of column names
+  # nrows - value specifying number of rows in output table
+  # fill - what to fill the output table with (deafult = NA)
+  #
+  # Output vars:
+  # tab - data frame table 
+  
   tab = as.data.frame(array(fill, c(nrows, length(colNames))))
   names(tab) = colNames
+  
   return(tab)
+  
 }
-gm_mean = function(x, na.rm=TRUE){
-  exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
-}
-dirCreater <- function(dirPath){
-  for (i in 1:length(dirPath)){
-    if (!dir.exists(dirPath[i])){
-      dir.create(dirPath[i], recursive=T)
-      print(paste("created new directory:", dirPath[i]))
-    }
-  }
-}
-largerBasin = function(cTab, mTab, UID, ncolCtab){
-  upUIDs = cTab[UID, 4:ncolCtab]
-  upUIDs = upUIDs[upUIDs != 0]
-  # in the case of two basins being of equal size, the first listed seg is used:
-  upUID = upUIDs[which.max(mTab$AREA[upUIDs])]
-  return(upUID)
-}
+
 POI2RivJoin <- function(POItab, POIXY, pLineTab, attrTab, inAttr, POIname, 
-                        scoreFunc, sRad, smallSrad){
-  # for each point of interest (POI), find the river segment that the 
-  # POI is most likely to be located on.
+                        scoreFunc, sRad, smallSrad, plot=F){
+  
+  # Description:
+  # For each point of interest (POI), find the river segment that the 
+  # POI is most likely to be located on. Point of interests include cities, 
+  # dams and gauges.
+  
+  # Input vars:
+  # POItab - table containing point of interest attributes to be joined to network
+  # POIXY - 2 column table containing lat and lon of each point of interest 
+  # pLineTab - polyline shapefile table providing lat & lon of flowline vertices
+  # attrTab - table with flowline shapefile attributes
+  # inAttr - POI table column name(s) to be transfered to output attribute table
+  # Right now, only numerical attributes can be transferred between tables
+  # POIname - prefix for type of POI data this is. Used for output table col names
+  # scoreFunc - distance function to score relationship between POI and segments
+  # sRad - value specifying dimensions of the initial square subset (in meters)
+  # smallSrad - value specifying radius of secondary search radius (in meters)
+  # plot - optional boolean to plot each join for examination (default=F)
+  #
+  # Output vars:
+  # attrTab - original flowline shapefile attributes with join fields added
   
   # extract lat lon from tables:
   rXY = cbind(pLineTab$X, pLineTab$Y)
@@ -104,7 +116,7 @@ POI2RivJoin <- function(POItab, POIXY, pLineTab, attrTab, inAttr, POIname,
   POIsubInd = which(POIXY[,1] > rangeXY[1,1] & POIXY[,1] < rangeXY[2,1] & 
                       POIXY[,2] > rangeXY[1,2] & POIXY[,2] < rangeXY[2,2])
   
-  # find best matching river segment for each point of interest:
+  # for each point of interest find best matching river segment:
   for (j in POIsubInd){ #nrow(POIXY)){
     # subset river polylines with an endpoints within a square distance 
     # from each POI:
@@ -137,54 +149,139 @@ POI2RivJoin <- function(POItab, POIXY, pLineTab, attrTab, inAttr, POIname,
     outTab[topScoreInd, ] = as.numeric(
       as.matrix(cbind(score[maxScoreInd], POItab[j, inAttrColInd])))
   }
-  POItab[j, inAttrColInd]
-  as.numeric(as.matrix(POItab[j, inAttrColInd]))
   
   # add output table to attrTab:
   attrTab = cbind(attrTab, outTab)
   
+  # Optional Plot:
+  if (plot==T){
+    plot(tXY[closeRivs, 1], tXY[closeRivs, 2])
+    points(POIXY[j,1], POIXY[j,2], col=2, pch=15)
+    lines(closeXY[, 1], closeXY[, 2])
+    points(closeXY[, 1], closeXY[, 2], cex=0.4, pch=16)
+    lines(closeXY[closestRivs, 1], closeXY[closestRivs, 2], col=4)
+    points(tXY[closestTabInd, 1], tXY[closestTabInd, 2], pch=16)
+    
+    plot(tXY[closestTabInd, 1], tXY[closestTabInd, 2])
+    line(closeXY[closestRivs, 1], closeXY[closestRivs, 2], col=4)
+    points(POIXY[j,1], POIXY[j,2], col=2, pch=15)
+    x = which(pLineTab$Id == closestTabInd[closestRivsOrd[which.max(score)]])
+    line(pLineTab$X[x], pLineTab$Y[x], col=2)
+  }
+  
   return(attrTab)
-  # # Plot:
-  # plot(tXY[closeRivs, 1], tXY[closeRivs, 2])
-  # points(POIXY[j,1], POIXY[j,2], col=2, pch=15)
-  # lines(closeXY[, 1], closeXY[, 2])
-  # points(closeXY[, 1], closeXY[, 2], cex=0.4, pch=16)
-  # lines(closeXY[closestRivs, 1], closeXY[closestRivs, 2], col=4)
-  # points(tXY[closestTabInd, 1], tXY[closestTabInd, 2], pch=16)
-  # 
-  # plot(tXY[closestTabInd, 1], tXY[closestTabInd, 2])
-  # line(closeXY[closestRivs, 1], closeXY[closestRivs, 2], col=4)
-  # points(POIXY[j,1], POIXY[j,2], col=2, pch=15)
-  # x = which(pLineTab$Id == closestTabInd[closestRivsOrd[which.max(score)]])
-  # line(pLineTab$X[x], pLineTab$Y[x], col=2)
-  # 
+  
 }
-celerityModel_mann_rect <- function(tab, MC_WIDTH, MC_DEPTH, MC_SLOPE, MC_N, B=5/3){
+
+gmMean <- function(x, na.rm=TRUE){
+  
+  # Computes the geometric mean
+  #
+  # Input vars:
+  # x - a vector of values
+  #
+  # Output vars:
+  # geomMean - the geometric mean
+  
+  geomMean = exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+  
+  return(geomMean)
+  
+}
+
+dirCreator <- function(dirPath){
+  
+  # Create local directory(ies) in specified path locations
+  #
+  # Input vars:
+  # dirPath - a single file path or a vector of paths
+  #
+  # Output vars:
+  # none
+  
+  for (i in 1:length(dirPath)){
+    if (!dir.exists(dirPath[i])){
+      dir.create(dirPath[i], recursive=T)
+      print(paste("created new directory:", dirPath[i]))
+    }
+  }
+  
+}
+
+largerBasin <- function(cTab, mTab, UID, ncolCtab){
+  
+  # Description:
+  # For a given river segment, returns the upstream segment with the greatest
+  # drainage area. Takes in connectivity table and info about drainage area:
+  #
+  # Input vars:
+  # cTab - connectivity tab that gives which flowline segment is upstream 
+  # mTab - table containing flowline shapefile attributes
+  # UID - unique flowline segment ID 
+  # ncolCtab - number of non-zero columns in connectivity tab
+  #
+  # Output vars:
+  # upUID - unique ID of the flowline segment ID with the largest drainage area
+  
+  upUIDs = cTab[UID, 4:ncolCtab]
+  upUIDs = upUIDs[upUIDs != 0]
+  
+  # in the case of two basins being of equal size, the first listed seg is used:
+  upUID = upUIDs[which.max(mTab$AREA[upUIDs])]
+  
+  return(upUID)
+  
+}
+
+celerityCalc <- function(tab, width, depth, slope, N, B){
+  
+  # Author:
+  # George H. Allen (20180223)
+  #
+  # This function is used in the analysis of Allen et al. "Global estimates of  
+  # river flow wave travel times and implications for low-latency satellite data"
+  #
+  # Description:
+  # calculates flow wave celerity and travel time of each segment of 
+  # flowline dataset based on Manning's Formula and the kinematic wave model
+  #
+  # Input vars:
+  # tab - shapefile attribute tatble
+  # width - bankful width (m): --> Andreadis et al
+  # depth - bankful depth (m): --> Andreadis et al 
+  # slope -  river slope (m/m): --> 15 arcsec HydroSHEDS Conditioned DEM
+  # N - Manning's roughness coefficient (s/m^0.33)
+  # B - kinematic wave coefficient 
+  #
+  # Output vars:
+  # tab - return shapefile attribute table with new fields of celerity and 
+  #  flow wave travel time attached
+  
   # flow wave celerity model:
   # segment length (m): --> hydrosheds
+  
   L = tab$LENGTH_KM*1e3 # convert to m
-  # Manning's roughness coefficient (s/m^0.33):
-  n = MC_N
-  # bankful width (m): --> Andreadis et al
-  w = MC_WIDTH
-  # bankful depth (m): --> Andreadis et al
-  h = MC_DEPTH
-  # river slope (m/m): --> hydrosheds
-  S = MC_SLOPE # sinuosity correction
-  # hydraulic radius
-  R = w * h / (2*h + w)
+  
+  # Calculate the hydraulic radius (m):
+  R = width * depth / (2*depth + width)
+  
   # manning's equation for flow velocity (m/s):
-  v = n^(-1) * R^(2/3) * S^(1/2)
+  v = N^(-1) * R^(2/3) * slope^(1/2)
+  
   # Wave celerity equation from Lighthill and Whitham (1955) (m/s):
   celerity = v * B 
+  
   # wave propagation time (days):
   propT = L / (celerity*86400) # convert from s to days
+  
   # add information to tab:
   tab$CELER_MPS = celerity # (m/s)
   tab$PROPTIME_DAY = propT # (days)
   
   return(tab)
+  
 }
+
 nextDnStrmPOIlength <- function(tab, cTab, mouthInd, POIbool, outField){
   outFieldInd = which(names(tab)==outField)
   mouthInd = mouthInd[!POIbool[mouthInd]]
@@ -279,6 +376,7 @@ cumRivTime <- function(tab, cTab){
   #print(proc.time() - ptm)
   return(tab)
 }
+
 tabulator <- function(tab, tabdList, varList, h, i, binInt, maxBin, keep, 
                       tabOutFdir, rivEndPtTabNames, SWOT, nRun){
   # fill in tabulation tables with statistical distributions 
@@ -585,108 +683,111 @@ meanTabOutPath = paste0(tabOutFdir, '/run_averages/', rivEndPtTabNames, '_runMea
 medTabOutPath = paste0(tabOutFdir, '/run_averages/', rivEndPtTabNames, '_runMedians.csv')
 aveTabPaths = cbind(meanTabOutPath, medTabOutPath)
 # create directories if they don't exist:
-dirCreater(dirPath = c(cityDamGaugeFdir, obsOutFdir, rivOutFdir, 
+dirCreator(dirPath = c(cityDamGaugeFdir, obsOutFdir, rivOutFdir, 
            paste0(tabOutFdir, '/distributions/', rivEndPtTabNames, '/'),
            paste0(tabOutFdir, '/run_averages/'), paste0(figOutFdir, '/validation/')))
 
 ################################################################################
 # POI JOIN TO RIVER NETWORK
 ################################################################################
-# 
-# # read in city table:
-# cityTab = foreign::read.dbf(cityFpath);  
-# cityTab = cityTab[match(c('NAME','LATITUDE','LONGITUDE','POP_MAX','POP_MIN'), 
-#                         names(cityTab))]
-# cityXY = cbind(cityTab$LONGITUDE, cityTab$LATITUDE)
-# 
-# # read in dam table:
-# damTab = foreign::read.dbf(damFpath);  
-# damTab = damTab[match(
-#   c('DAM_NAME','LAT_DD','LONG_DD','YEAR','AREA_SKM','CAP_MCM'), names(damTab))]
-# damXY = cbind(damTab$LONG_DD, damTab$LAT_DD)
-# 
-# # read in gauge table:
-# gaugeTab = foreign::read.dbf(gaugeFpath);
-# # added lat lon fields using WGS84 in arc:
-# gaugeTab = gaugeTab[match(c('Site_NO','lat','lon', 'HUC8'), names(gaugeTab))]
-# gaugeXY = cbind(gaugeTab$lon, gaugeTab$lat)
-# 
-# # run through each continent and match up cities, dams, and gauges to the 
-# # river networks: 
-# shpFpaths = sub('.dbf', '.shp', origPolylinesFpaths)
-# for (i in 1:length(shpFpaths)){ #c(4,6)){ #
-#   print(i)
-#   # extract the verticies of the polylines # (very slow - took africa 3 hours 
-#   # to read in): 
-#   #consider trying much faster function, sf::st_combine(st_read(shpFpaths[i])))
-#   ptm = proc.time()
-#   pLineTab = read.shp(shpFpaths[i])
-#   print(proc.time() - ptm)
-#   ptm = proc.time()
-#   pLineTab = convert.to.simple(pLineTab)
-#   print(proc.time() - ptm)
-#   
-#   # extract end point verticies and add a city field to tab:
-#   attrTab = foreign::read.dbf(origPolylinesFpaths[i])
-#   
-#   # for each city, find the river segment that the city is most likely 
-#   # to be located on:
-#   ptm = proc.time()
-#   attrTab = POI2RivJoin(
-#     POItab = cityTab, 
-#     POIXY = cityXY, 
-#     pLineTab = pLineTab, 
-#     attrTab = attrTab, 
-#     inAttr = c('POP_MAX'), # POI table column name(s) to be transfered to the output attribute table. 
-#     # right now, only numerical attributes can be transferred between tables. 
-#     POIname = 'CITY', # prefix for what type of POI data this is. Used for output table column names
-#     scoreFunc = function(area, dist){ return(area/dist^2) }, # distance to score the relationship between POI and segments
-#     sRad = 3e4, # specify the dimensions of the initial square subset (in meters)
-#     smallSrad = 1e4) # specify radius of secondary search radius (in meters)
-#   print(proc.time() - ptm)
-#   
-#   # for each dam, find the river segment that the dam is most likely to be located on:
-#   ptm = proc.time()
-#   attrTab = POI2RivJoin(
-#     POItab = damTab, 
-#     POIXY = damXY, 
-#     pLineTab = pLineTab, 
-#     attrTab = attrTab, 
-#     inAttr = c('AREA_SKM', 'CAP_MCM'), # POI table column name(s) to be transfered to the output attribute table. 
-#     # right now, only numerical attributes can be transferred between tables. 
-#     POIname = 'DAM', # prefix for what type of POI data this is. Used for output table column names
-#     scoreFunc = function(area, dist){ return(area/dist^3) }, # distance to score the relationship between POI and segments
-#     sRad = 3e4, # specify the dimensions of the initial square subset (in meters)
-#     smallSrad = 3e3) # specify radius of secondary search radius (in meters)
-#   print(proc.time() - ptm)
-#   
-#   # for each gauge, find the river segment that the gauge is most likely to be located on:
-#   ptm = proc.time()
-#   attrTab = POI2RivJoin(
-#     POItab = gaugeTab, 
-#     POIXY = gaugeXY, 
-#     pLineTab = pLineTab, 
-#     attrTab = attrTab, 
-#     inAttr = c('Site_NO', 'HUC8'), # POI table column name(s) to be transfered to the output attribute table. 
-#     #inAttr = c('STAID', 'DRAIN_SQKM', 'HUC02'), # POI table column name(s) to be transfered to the output attribute table. 
-#     # right now, only numerical attributes can be transferred between tables. 
-#     POIname = 'GAUGE', # prefix for what type of POI data this is. Used for output table column names
-#     scoreFunc = function(area, dist){ return(area/dist^3) }, # distance to score the relationship between POI and segments
-#     sRad = 3e4, # specify the dimensions of the initial square subset (in meters)
-#     smallSrad = 2e3) # specify radius of secondary search radius (in meters)
-#   print(proc.time() - ptm)
-#   
-#   # write out POI table:
-#   foreign::write.dbf(attrTab, cityDamGaugeFpaths[i])
-# }
-# 
-# system("say done run")
-# 
-# 
-# 
-# 
-# 
-#
+
+# read in city table:
+cityTab = foreign::read.dbf(cityFpath);
+cityTab = cityTab[match(c('NAME','LATITUDE','LONGITUDE','POP_MAX','POP_MIN'),
+                        names(cityTab))]
+cityXY = cbind(cityTab$LONGITUDE, cityTab$LATITUDE)
+
+# read in dam table:
+damTab = foreign::read.dbf(damFpath);
+damTab = damTab[match(
+  c('DAM_NAME','LAT_DD','LONG_DD','YEAR','AREA_SKM','CAP_MCM'), names(damTab))]
+damXY = cbind(damTab$LONG_DD, damTab$LAT_DD)
+
+# read in gauge table:
+gaugeTab = foreign::read.dbf(gaugeFpath);
+# added lat lon fields using WGS84 in arc:
+gaugeTab = gaugeTab[match(c('Site_NO','lat','lon', 'HUC8'), names(gaugeTab))]
+gaugeXY = cbind(gaugeTab$lon, gaugeTab$lat)
+
+# run through each continent and match up cities, dams, and gauges to the
+# river networks:
+shpFpaths = sub('.dbf', '.shp', origPolylinesFpaths)
+for (i in 1:length(shpFpaths)){ #c(4,6)){ #
+  print(i)
+  # extract the verticies of the polylines # (very slow - took africa 3 hours
+  # to read in):
+  #consider trying much faster function, sf::st_combine(st_read(shpFpaths[i])))
+  ptm = proc.time()
+  pLineTab = read.shp(shpFpaths[i])
+  print(proc.time() - ptm)
+  ptm = proc.time()
+  pLineTab = convert.to.simple(pLineTab)
+  print(proc.time() - ptm)
+
+  # extract end point verticies and add a city field to tab:
+  attrTab = foreign::read.dbf(origPolylinesFpaths[i])
+
+  # for each city, find the river segment that the city is most likely
+  # to be located on:
+  ptm = proc.time()
+  attrTab = POI2RivJoin(
+    POItab = cityTab,
+    POIXY = cityXY,
+    pLineTab = pLineTab,
+    attrTab = attrTab,
+    inAttr = c('POP_MAX'), # POI table column name(s) to be transfered to the output attribute table.
+    # right now, only numerical attributes can be transferred between tables.
+    POIname = 'CITY', # prefix for what type of POI data this is. Used for output table column names
+    scoreFunc = function(area, dist){ return(area/dist^2) }, # distance to score the relationship between POI and segments
+    sRad = 3e4, # specify the dimensions of the initial square subset (in meters)
+    smallSrad = 1e4, # specify radius of secondary search radius (in meters)
+    plot=F) 
+  print(proc.time() - ptm)
+
+  # for each dam, find the river segment that the dam is most likely to be located on:
+  ptm = proc.time()
+  attrTab = POI2RivJoin(
+    POItab = damTab,
+    POIXY = damXY,
+    pLineTab = pLineTab,
+    attrTab = attrTab,
+    inAttr = c('AREA_SKM', 'CAP_MCM'), # POI table column name(s) to be transfered to the output attribute table.
+    # right now, only numerical attributes can be transferred between tables.
+    POIname = 'DAM', # prefix for what type of POI data this is. Used for output table column names
+    scoreFunc = function(area, dist){ return(area/dist^3) }, # distance to score the relationship between POI and segments
+    sRad = 3e4, # specify the dimensions of the initial square subset (in meters)
+    smallSrad = 3e3, # specify radius of secondary search radius (in meters)
+    plot=F)   
+  print(proc.time() - ptm)
+
+  # for each gauge, find the river segment that the gauge is most likely to be located on:
+  ptm = proc.time()
+  attrTab = POI2RivJoin(
+    POItab = gaugeTab,
+    POIXY = gaugeXY,
+    pLineTab = pLineTab,
+    attrTab = attrTab,
+    inAttr = c('Site_NO', 'HUC8'), # POI table column name(s) to be transfered to the output attribute table.
+    #inAttr = c('STAID', 'DRAIN_SQKM', 'HUC02'), # POI table column name(s) to be transfered to the output attribute table.
+    # right now, only numerical attributes can be transferred between tables.
+    POIname = 'GAUGE', # prefix for what type of POI data this is. Used for output table column names
+    scoreFunc = function(area, dist){ return(area/dist^3) }, # distance to score the relationship between POI and segments
+    sRad = 3e4, # specify the dimensions of the initial square subset (in meters)
+    smallSrad = 2e3, # specify radius of secondary search radius (in meters)
+    plot=F) 
+  print(proc.time() - ptm)
+
+  # write out POI table:
+  foreign::write.dbf(attrTab, cityDamGaugeFpaths[i])
+}
+
+system("say done run")
+
+
+
+
+
+
 ################################################################################
 #CELERITY & TRAVEL TIME
 ################################################################################
@@ -783,8 +884,8 @@ for (i in 1:length(cityDamGaugeFpaths)){
     
     ####
     # calculate flow wave celerity for each segment:
-    # manning rect: β = 5/3; Chezy rect: β = 3/2; manning tri: 4/3; chez tri: 5/4
-    tab = celerityModel_mann_rect(tab, MC_WIDTH, MC_DEPTH, MC_SLOPE, MC_N, B=5/3)
+    # manning rect: β=5/3; Chezy rect: 3/2; manning tri: 4/3; chez tri: 5/4
+    tab = celerityCalc(tab, MC_WIDTH, MC_DEPTH, MC_SLOPE, MC_N, B=5/3)
     
     # Add new columns to tab:
     SWOT_TRAC_DEN = 
