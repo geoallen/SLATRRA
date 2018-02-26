@@ -283,6 +283,22 @@ celerityCalc <- function(tab, width, depth, slope, N, B){
 }
 
 nextDnStrmPOIlength <- function(tab, cTab, mouthInd, POIbool, outField){
+  
+  # Description:
+  # Calculate the travel time/ distance to the next downstream POI (city of dam).
+  # Zero-out the cumulative time of river segments that are
+  # not upstream from a city or dam (just upstream of the basin outlet)
+  #
+  # Input vars:
+  # tab - shapefile attribute tatble
+  # cTab - connectivity table
+  # mouthInd - index of river mouth
+  # POIbool - point of interest boolean. 
+  # outField - name of column that is added to tab
+  #
+  # Output vars:
+  # tab - return shapefile attribute table with new outField attached
+  
   outFieldInd = which(names(tab)==outField)
   mouthInd = mouthInd[!POIbool[mouthInd]]
   thisUID = cTab$UID[mouthInd]
@@ -307,9 +323,30 @@ nextDnStrmPOIlength <- function(tab, cTab, mouthInd, POIbool, outField){
   }
   return(tab)
 }
-cumRivTime <- function(tab, cTab){
-  # start with river segment at bottom of network and 
-  # work upstream to calculate cumulative length and time:
+
+cumRivTime_POI <- function(tab, cTab, SLATTRAdir){
+  
+  # Author:
+  # George H. Allen (20180223)
+  #
+  # This function is used in the analysis of Allen et al. "Global estimates of  
+  # river flow wave travel times and implications for low-latency satellite data"
+  #
+  # Description:
+  # Start with river segment at netowrk mouth and work upstream to calculate
+  # cumulative river length and flow wave travel time. Also keeps track of the
+  # distance to next downstream city and dam (this is computationally costly).
+  # 
+  # Input vars:
+  # tab - shapefile attribute tatble
+  # cTab - connectivity table
+  # SLATTRAdir - path to working base directory
+  #
+  # Output vars:
+  # tab - return shapefile attribute table with new outFields attached
+   
+  # load in other functions:
+  source(paste0(SLATTRAdir, '/src/nextDnStrmPOIlength.R'))
   
   # identify which segments are at the bottom of networks:
   mouthInd = which(cTab$DNSTR == 0)
@@ -374,11 +411,41 @@ cumRivTime <- function(tab, cTab){
   
   #print(paste("N upstream iterations:", j))
   #print(proc.time() - ptm)
+  
   return(tab)
+  
 }
 
-tabulator <- function(tab, tabdList, varList, h, i, binInt, maxBin, keep, 
-                      tabOutFdir, rivEndPtTabNames, SWOT, nRun){
+MC_tabulator <- function(tab, tabdList, varList, h, i, binInt, maxBin, keep, 
+                         tabOutFdir, rivEndPtTabNames, SWOT, nRun){
+  
+  # Author:
+  # George H. Allen (20180223)
+  #
+  # This function is used in the analysis of Allen et al. "Global estimates of  
+  # river flow wave travel times and implications for low-latency satellite data"
+  #
+  # Description:
+  # For each Monte Carlo ensemble run, tabulates distribution of data for given
+  # fields. Concatenates this tabulated data and write out to a CSV file. 
+  # 
+  # Input vars:
+  # tab - input shapefile attribute table
+  # tabdList - tabulated distribution table to be filled in
+  # varList - list of variables to analyze
+  # h - run index
+  # i - region index
+  # binInt - histogram binning interval
+  # maxBin - maximum bin break
+  # keep - data filter to subset data
+  # tabOutFdir - directory path to write output file
+  # rivEndPtTabNames - abbreviated name of region
+  # SWOT - boolean indicating whether to run in terms of SWOT path density
+  # nRun - number of enseble runs
+  #
+  # Output vars:
+  # tabdList - return tabulated distribution table
+  
   # fill in tabulation tables with statistical distributions 
   # used to generate Fig. S3
   tabdNames = names(tabdList)
@@ -415,6 +482,7 @@ tabulator <- function(tab, tabdList, varList, h, i, binInt, maxBin, keep,
   return(tabdList)
   
 }
+
 dnStrGaugeCrawler <- function(tab, cTab){
   # for each gauge, find the downstream gauge and add that index to a table. 
   # The first column of this table lists the UID of the segments with gauges. 
@@ -910,8 +978,8 @@ for (i in 1:length(cityDamGaugeFpaths)){
     tab$CONTINENT = i # add continental UID field (1=af, 2=as, 3=au, 4=ca, 5=eu, 6=na, 7=sa)
       
     # calculate the cumulative length and time along
-    # entire river network (computationally costly):
-    tab = cumRivTime(tab, cTab)
+    # entire river network. (computationally costly):
+    tab = cumRivTime_POI(tab, cTab, SLATTRAdir)
   
     
     # PROCESS OUTPUT DATA:
@@ -998,20 +1066,20 @@ for (i in 1:length(cityDamGaugeFpaths)){
     # used to generate Table 1 and Fig. S3:
     # celerities of all rivers:
     
-    tabdCelList = tabulator(tab, tabdList=tabdCelList, varList=list(tab$CELER_MPS), 
+    tabdCelList = MC_tabulator(tab, tabdList=tabdCelList, varList=list(tab$CELER_MPS), 
               h, i, binInt=celBinInt, maxBin=maxCel, keep=notDesert & Sof60, 
               tabOutFdir, rivEndPtTabNames, SWOT=F, nRun)
     # celerities of SWOT rivers only:
-    tabdCel_swotList = tabulator(tab, tabdList=tabdCel_swotList, varList=list(tab$CELER_MPS), 
+    tabdCel_swotList = MC_tabulator(tab, tabdList=tabdCel_swotList, varList=list(tab$CELER_MPS), 
               h, i, binInt=celBinInt, maxBin=maxCel, keep=notDesert & Sof60 & wide, 
               tabOutFdir, rivEndPtTabNames, SWOT=T, nRun)
     # travel times of all rivers:
-    tabdTTList = tabulator(tab, tabdList=tabdTTList, 
+    tabdTTList = MC_tabulator(tab, tabdList=tabdTTList, 
               varList=list(tab$UPSTR_TIME_DAY, tab$CITY_UPSTR_TIME_DAY, tab$DAM_UPSTR_TIME_DAY), 
               h, i, binInt=TTbinInt, maxBin=maxTT, keep=notDesert & Sof60, 
               tabOutFdir, rivEndPtTabNames, SWOT=F, nRun)
     # travel times of SWOT rivers only:
-    tabdTT_swotList = tabulator(tab, tabdList=tabdTT_swotList, 
+    tabdTT_swotList = MC_tabulator(tab, tabdList=tabdTT_swotList, 
               varList=list(tab$UPSTR_TIME_DAY, tab$CITY_UPSTR_TIME_DAY, tab$DAM_UPSTR_TIME_DAY), 
               h, i, binInt=TTbinInt, maxBin=maxTT, keep=notDesert & Sof60 & wide, 
               tabOutFdir, rivEndPtTabNames, SWOT=T, nRun)
