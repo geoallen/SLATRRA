@@ -484,9 +484,21 @@ MC_tabulator <- function(tab, tabdList, varList, h, i, binInt, maxBin, keep,
 }
 
 dnStrGaugeCrawler <- function(tab, cTab){
-  # for each gauge, find the downstream gauge and add that index to a table. 
+
+  # Description:
+  # For each gauge, find the downstream gauge and add that index to a table. 
   # The first column of this table lists the UID of the segments with gauges. 
-  # the next column is the corresponding downstream segment, etc. 
+  # The next column is the corresponding downstream segment, etc. 
+  # 
+  # Input vars:
+  # tab - shapefile attribute tatble
+  # cTab - connectivity table
+  #
+  # Output vars:
+  # segIDtab - return table containg the IDs of downstream segments with gauges.
+  #   The first column of this table lists the UID of the segments with gauges. 
+  #   The next column is the corresponding downstream segment, etc. 
+  
   gCol = grep('GAUGE_Site|GAUGE_STAI', names(tab))
   gBoo = tab[ ,gCol] != 0
   gID = tab[gBoo ,gCol]
@@ -514,6 +526,7 @@ dnStrGaugeCrawler <- function(tab, cTab){
   return(segIDtab)
   
 }
+
 lagRangeCalc = function(minCel, maxCel, dnStrDist){
   # km to m, and sec to days conversion:
   lagRange = ceiling(cbind(dnStrDist/maxCel, dnStrDist/minCel)*kmpday2mpsConv) 
@@ -883,18 +896,18 @@ for (i in 1:length(cityDamGaugeFpaths)){
       
       # read in midPtTab:
       midPtTab = foreign::read.dbf(rivMidPtTabFpaths[midPtMatch[i]])
+      
+      # read in and set up connectivity table:
+      j = grep(rivEndPtTabNames[i], rivNetworkConnectFnames)
+      cTab = read.csv(rivNetworkConnectFpaths[j], header=F)
+      names(cTab) = c("UID", "DNSTR", "N_UPSTRSEGS", 
+                      "UPSTR1", "UPSTR2", "UPSTR3", "UPSTR4", "UPSTR5", "UPSTR6", 
+                      "UPSTR7", "UPSTR8", "UPSTR9", "UPSTR10", "UPSTR11", "UPSTR12")
+      
     }
     tab=tab_raw
     
     print(paste("  Simulation run: ", h, "of", nRun))
-    
-    # read in and set up connectivity table:
-    j = grep(rivEndPtTabNames[i], rivNetworkConnectFnames)
-    cTab = read.csv(rivNetworkConnectFpaths[j], header=F)
-    names(cTab) = c("UID", "DNSTR", "N_UPSTRSEGS", 
-                    "UPSTR1", "UPSTR2", "UPSTR3", "UPSTR4", "UPSTR5", "UPSTR6", 
-                    "UPSTR7", "UPSTR8", "UPSTR9", "UPSTR10", "UPSTR11", "UPSTR12")
-    
     
     ####
     # SLOPE CALCULATION:
@@ -948,7 +961,7 @@ for (i in 1:length(cityDamGaugeFpaths)){
     }
     
     # generate roughness uncertainty from XYZ: 
-    MC_N = runif(n=1, min=0.02, max=0.05) # abs(rnorm(n=N, mean=0.03, sd=0.005)) # 
+    MC_N = runif(n=1, min=0.02, max=0.05) 
     
     ####
     # calculate flow wave celerity for each segment:
@@ -1708,7 +1721,7 @@ for (h in 1:ncol(aveTabPaths)){
   # write out global column-averaged table:
   globAveTabPath = sub('af_', '_global_', aveTabPaths[1,h])
   write.csv(mTab, globAveTabPath, row.names=F)
-
+  # mTab = read.csv(globAveTabPath, header=T)
 
   # for each input and output variable, plot simulation convergence:
   for (i in 1:length(colNameList)){
