@@ -326,12 +326,6 @@ nextDnStrmPOIlength <- function(tab, cTab, mouthInd, POIbool, outField){
 
 cumRivTime_POI <- function(tab, cTab, SLATTRAdir){
   
-  # Author:
-  # George H. Allen (20180223)
-  #
-  # This function is used in the analysis of Allen et al. "Global estimates of  
-  # river flow wave travel times and implications for low-latency satellite data"
-  #
   # Description:
   # Start with river segment at netowrk mouth and work upstream to calculate
   # cumulative river length and flow wave travel time. Also keeps track of the
@@ -419,12 +413,6 @@ cumRivTime_POI <- function(tab, cTab, SLATTRAdir){
 MC_tabulator <- function(tab, tabdList, varList, h, i, binInt, maxBin, keep, 
                          tabOutFdir, rivEndPtTabNames, SWOT, nRun){
   
-  # Author:
-  # George H. Allen (20180223)
-  #
-  # This function is used in the analysis of Allen et al. "Global estimates of  
-  # river flow wave travel times and implications for low-latency satellite data"
-  #
   # Description:
   # For each Monte Carlo ensemble run, tabulates distribution of data for given
   # fields. Concatenates this tabulated data and write out to a CSV file. 
@@ -528,27 +516,66 @@ dnStrGaugeCrawler <- function(tab, cTab){
 }
 
 lagRangeCalc = function(minCel, maxCel, dnStrDist){
+  
+  # Description:
+  # For each pair of USGS river gauges, find the range of possible flow wave
+  # travel times. 
+  # 
+  # Input vars:
+  # minCel - minimum realistic celerity
+  # minCel - maximum realistic celerity
+  # dnStrDist - vector of distances between the pairs of gauges
+  #
+  # Output vars:
+  # lagRange - table with min and max travel times for each pair of gauges
+  
   # km to m, and sec to days conversion:
   lagRange = ceiling(cbind(dnStrDist/maxCel, dnStrDist/minCel)*kmpday2mpsConv) 
   lagRange[lagRange > 200] = 200
+  
   return(lagRange)
+  
 }
+
 QreadAndProc = function(qTab, quantile){
-  # find which column contains dsicahrge records:
+
+  # Description:
+  # Find which column contains discharge records in the USGS flow records.
+  #
+  # Input vars:
+  # qTab - USGS gauge discharge table 
+  # quantile - optional: only consider discharges > a specified percentile:
+  #
+  # Output vars:
+  # Q - vector of USGS gauge derived discharge 
+  
   colNames = names(qTab)
   ind = grep("00060", colNames)
   Qcol = ind[grep("_cd", colNames[ind], inv=T)][1]
-  # optional - only consider discharges > a specified percentile:
   Q = qTab[, Qcol]
   Q = suppressWarnings(as.numeric(levels(Q))[Q])
   highQ = quantile(Q, quantile, na.rm=T)[[1]]
   Q[Q<highQ] = NA
+  
   return(Q)
+  
 }
+
 lagCor = function(q1, q2, lagRange, k){
-  ########
-  # over a reasonable range of celerities (<10 mps), find 
-  # what time lag corresponds to the maximum correlation:
+ 
+  # Description:
+  # Find the time lag that corresponds to the maximum cross correlation between
+  # a upstream/downstream pair of gauge flow records:
+  #
+  # Input vars:
+  # q1 - discharge record of gauge 1
+  # q2 - discharge record of gauge 1
+  # lagRange - table of releastic lags to test the correlations over
+  # k - record index of gauge pair
+  #
+  # Output vars:
+  # corVec - vector of cross correlations
+  
   lagWin = 1:lagRange[k,2]
   corVec = rep(NA, lagRange[k,2])
   for (l in lagWin){
@@ -556,10 +583,23 @@ lagCor = function(q1, q2, lagRange, k){
     q2 = c(NA, q2)
     corVec[l] = cor(q1, q2, use="pairwise.complete.obs")
   }
+  
   return(corVec)
+  
 }
+
 lagCorrPlot <- function(tab, corVec, lag_day, gDnStrmDist, modelTT, i, j, k, Q1, 
                         Q2, cfs2mfsConv, dates, R, Qoverlap, gAreaDif_per, ID){
+  
+  # Description:
+  # This function is used in the analysis of Allen et al. "Global estimates of  
+  # river flow wave travel times and implications for low-latency satellite data"
+  # 
+  # Plot Figure S2 in the supplemental material showing the paired gauged 
+  # discahrge records and the lag cross correlation between the two. 
+  #
+  # Input vars:
+  # coming soon. maybe. 
   
   par(mfrow=c(2,1))
   par(mar=c(4.1,5.1,2.1,7.1))
@@ -614,76 +654,6 @@ lagCorrPlot <- function(tab, corVec, lag_day, gDnStrmDist, modelTT, i, j, k, Q1,
   # convert from m/s to days and km to m
   mtext(paste("Area dif:", round(gAreaDif_per), "%   modCel:",
               round(sum(tab$LENGTH_KM[ID])/(modelTT)*kmpday2mpsConv,2)), line=-1) 
-}
-distPlot <- function(x, weight, uprQuant, breaks=NA, j, xLab, yLab, makeTab=T, latencies = NA, latencyTab=NA){
-  
-  # split segments into 1 km segments and multiply length 
-  # by the number of SWOT overpasses at that segment:
-  x = rep(x, round(weight), each=T)
-  
-  # define upper quantile
-  quant = quantile(x, uprQuant)
-  
-  if (is.na(breaks[1])){
-    if (quant-min(x) > 10){
-      breaks = seq(0, ceiling(quant), 1)
-    }else{
-      breaks = seq(0, ceiling(quant), length.out=20)
-    }
-  }else{
-    quant = max(breaks)
-  }
-  
-  xlim = c(min(x), quant)#range(x)#
-  
-  par(mar=c(5.1,5.1,2.1,4.1))
-  h = hist(x[x<xlim[2]], breaks=breaks, freq=T,
-           xlim=xlim, 
-           main='', #'Global distribution of flow celerity',
-           xlab=xLab,
-           ylab="",
-           las=1,
-           border=0,
-           col=rgb(0.7, 0.7, 0.7, 1))
-  mtext(yLab, 2, line = 4)
-  
-  cdf = ecdf(x)
-  cdfXseq = seq(xlim[1], xlim[2], length.out=100)
-  par(new=T); plot(cdfXseq, 
-                   cdf(cdfXseq),
-                   xlim=xlim, 
-                   yaxt = "n", 
-                   ylab = NA,
-                   xlab = NA,
-                   type='l',
-                   lwd=2,
-                   col=4)
-  axis(4,
-       las=1,
-       col=4,
-       col.ticks=4,
-       col.axis=4)
-  corns = par("usr"); par(xpd=T)
-  text(x=corns[2]+(corns[2]-corns[1])/4, y=mean(corns[3:4]), 
-       'Probability', 
-       srt=270,
-       col=4)
-  text(corns[1]-(corns[2]-corns[1])/16, corns[4]+0.05, 
-       letters[j], 
-       cex=1.5,
-       font=2)
-  
-  # add median point to plot:
-  med = median(x)
-  points(med, 0.5, col=4)
-  text(med, 0.5, paste0("(",round(med,1), ", 0.5)"), pos=4, col=4)
-  
-  # add latency information to latency table:
-  if (nrow(latencyTab)>1){
-    latencyVec = paste0(100*round(1-cdf(latencies), 2), "%")
-    latencyTab = as.data.frame(cbind(latencyTab, latencyVec))
-    return(latencyTab)
-  }
 }
 
 ################################################################################
@@ -994,9 +964,7 @@ for (i in 1:length(cityDamGaugeFpaths)){
     # entire river network. (computationally costly):
     tab = cumRivTime_POI(tab, cTab, SLATTRAdir)
   
-    
     # PROCESS OUTPUT DATA:
-    
     # add tab data to polyline shapefile data:
     # replace previously modified file with new copy:
     if (h == 1){
